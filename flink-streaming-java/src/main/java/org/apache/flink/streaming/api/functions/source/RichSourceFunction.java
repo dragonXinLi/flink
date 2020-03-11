@@ -39,6 +39,8 @@ import org.apache.flink.api.common.functions.AbstractRichFunction;
  * </ul>
  *
  * @param <OUT> The type of the records produced by this source.
+ *
+ * RichSourceFunction类比SourceFunction类多了open方法，可以用来初始化
  */
 @Public
 public abstract class RichSourceFunction<OUT> extends AbstractRichFunction implements SourceFunction<OUT> {
