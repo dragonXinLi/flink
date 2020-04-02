@@ -90,6 +90,21 @@ under the License.
 		<module>flink-kubernetes</module>
 	</modules>
 
+<!--	<repositories>&lt;!&ndash; 代码库 &ndash;&gt;-->
+<!--		<repository>-->
+<!--			<id>maven-ali</id>-->
+<!--			<url>http://maven.aliyun.com/nexus/content/groups/public//</url>-->
+<!--			<releases>-->
+<!--				<enabled>true</enabled>-->
+<!--			</releases>-->
+<!--			<snapshots>-->
+<!--				<enabled>true</enabled>-->
+<!--				<updatePolicy>always</updatePolicy>-->
+<!--				<checksumPolicy>fail</checksumPolicy>-->
+<!--			</snapshots>-->
+<!--		</repository>-->
+<!--	</repositories>-->
+
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>

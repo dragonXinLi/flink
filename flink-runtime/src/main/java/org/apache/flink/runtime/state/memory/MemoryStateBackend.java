@@ -115,6 +115,9 @@ public class MemoryStateBackend extends AbstractFileStateBackend implements Conf
 
 	/** Switch to chose between synchronous and asynchronous snapshots.
 	 * A value of 'UNDEFINED' means not yet configured, in which case the default will be used. */
+	/**
+	 * MemoryStateBackend 支持配置是否是异步快照还是同步快照
+	 */
 	private final TernaryBoolean asynchronousSnapshots;
 
 	// ------------------------------------------------------------------------

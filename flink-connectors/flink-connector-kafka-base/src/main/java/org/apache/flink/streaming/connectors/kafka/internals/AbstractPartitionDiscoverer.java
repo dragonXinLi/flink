@@ -71,6 +71,8 @@ public abstract class AbstractPartitionDiscoverer {
 	 * to keep track of only the largest partition id because Kafka partition numbers are only
 	 * allowed to be increased and has incremental ids.
 	 */
+	// discoveredPartitions 中存放着所有发现的 partition
+
 	private Set<KafkaTopicPartition> discoveredPartitions;
 
 	public AbstractPartitionDiscoverer(
@@ -118,7 +120,10 @@ public abstract class AbstractPartitionDiscoverer {
 	/**
 	 * Execute a partition discovery attempt for this subtask.
 	 * This method lets the partition discoverer update what partitions it has discovered so far.
+	 * 使用此方法，分区发现程序可以更新到目前为止已发现的分区
 	 *
+	 * partition 发现器的 discoverPartitions 方法第一次调用时，会返回该 subtask 所有的 partition，
+	 * 后续调用只会返回新发现的且应该被当前 subtask 消费的 partition
 	 * @return List of discovered new partitions that this subtask should subscribe to.
 	 */
 	public List<KafkaTopicPartition> discoverPartitions() throws WakeupException, ClosedException {
@@ -128,6 +133,8 @@ public abstract class AbstractPartitionDiscoverer {
 
 				// (1) get all possible partitions, based on whether we are subscribed to fixed topics or a topic pattern
 				if (topicsDescriptor.isFixedTopics()) {
+					// 获取订阅的 Topic 的所有 partition
+
 					newDiscoveredPartitions = getAllPartitionsForTopics(topicsDescriptor.getFixedTopics());
 				} else {
 					List<String> matchedTopics = getAllTopics();
@@ -152,10 +159,16 @@ public abstract class AbstractPartitionDiscoverer {
 				if (newDiscoveredPartitions == null || newDiscoveredPartitions.isEmpty()) {
 					throw new RuntimeException("Unable to retrieve any partitions with KafkaTopicsDescriptor: " + topicsDescriptor);
 				} else {
+					// 剔除 旧的 partition 和 不应该被该 subtask 去消费的 partition
+
 					Iterator<KafkaTopicPartition> iter = newDiscoveredPartitions.iterator();
 					KafkaTopicPartition nextPartition;
 					while (iter.hasNext()) {
 						nextPartition = iter.next();
+						// setAndCheckDiscoveredPartition 方法设计比较巧妙，
+						// 将旧的 partition 和 不应该被该 subtask 消费的 partition，返回 false
+						// 将这些partition 剔除，就是新发现的 partition
+
 						if (!setAndCheckDiscoveredPartition(nextPartition)) {
 							iter.remove();
 						}
@@ -193,9 +206,16 @@ public abstract class AbstractPartitionDiscoverer {
 	 * @return {@code true}, if the partition wasn't seen before and should
 	 *         be subscribed by this subtask; {@code false} otherwise
 	 */
+	// setAndCheckDiscoveredPartition 方法实现
+// 当参数的 partition 是新发现的 partition 且应该被当前 subtask 消费时，返回 true
+// 旧的 partition 和 不应该被该 subtask 消费的 partition，返回 false
+
 	public boolean setAndCheckDiscoveredPartition(KafkaTopicPartition partition) {
+		// discoveredPartitions 中不存在，表示发现了新的 partition，将其加入到 discoveredPartitions
+
 		if (isUndiscoveredPartition(partition)) {
 			discoveredPartitions.add(partition);
+			// 再通过分配器来判断该 partition 是否应该被当前 subtask 去消费
 
 			return KafkaTopicPartitionAssigner.assign(partition, numParallelSubtasks) == indexOfThisSubtask;
 		}

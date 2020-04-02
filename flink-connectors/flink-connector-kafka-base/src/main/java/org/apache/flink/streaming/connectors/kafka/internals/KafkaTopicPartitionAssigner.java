@@ -48,6 +48,11 @@ public class KafkaTopicPartitionAssigner {
 	 *
 	 * @return index of the target subtask that the Kafka partition should be assigned to.
 	 */
+	/**
+	 * @param partition Kafka 中 topic 和 partition 信息
+	 * @param numParallelSubtasks subtask 的数量
+	 * @return 该 KafkaTopicPartition 分配给哪个 subtask 去消费
+	 */
 	public static int assign(KafkaTopicPartition partition, int numParallelSubtasks) {
 		int startIndex = ((partition.getTopic().hashCode() * 31) & 0x7FFFFFFF) % numParallelSubtasks;
 

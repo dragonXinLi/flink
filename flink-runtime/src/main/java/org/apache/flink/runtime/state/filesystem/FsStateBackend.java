@@ -107,10 +107,18 @@ public class FsStateBackend extends AbstractFileStateBackend implements Configur
 
 	/** State below this size will be stored as part of the metadata, rather than in files.
 	 * A value of '-1' means not yet configured, in which case the default will be used. */
+	/**
+	 * 如果状态大小比 MAXFILESTATE_THRESHOLD（1MB） 小的话，那么会将状态数据直接存储在 meta data 文件中，
+	 * 而不是存储在配置的文件中（避免出现很小的状态文件），如果该值为 "-1" 表示尚未配置，
+	 * 在这种情况下会使用默认值（1024，该默认值可以通过 state.backend.fs.memory-threshold 来配置）
+	 */
 	private final int fileStateThreshold;
 
 	/** Switch to chose between synchronous and asynchronous snapshots.
 	 * A value of 'undefined' means not yet configured, in which case the default will be used. */
+	/**
+	 * 控制是使用异步还是同步来进行 checkpoint 的，异步可以避免在状态 checkpoint 时阻塞数据流的处理
+	 */
 	private final TernaryBoolean asynchronousSnapshots;
 
 	/**

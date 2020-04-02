@@ -119,11 +119,17 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	// -- configuration values, set in the application / configuration
 
 	/** The state backend that we use for creating checkpoint streams. */
+	/**
+	 * 用于创建 checkpoint 流的状态后端
+	 */
 	private final StateBackend checkpointStreamBackend;
 
 	/** Base paths for RocksDB directory, as configured.
 	 * Null if not yet set, in which case the configuration values will be used.
 	 * The configuration defaults to the TaskManager's temp directories. */
+	/**
+	 * RocksDB 目录的基本路径，默认是 Task Manager 的临时目录
+	 */
 	@Nullable
 	private File[] localRocksDbDirectories;
 
@@ -136,9 +142,15 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	private RocksDBOptionsFactory rocksDbOptionsFactory;
 
 	/** This determines if incremental checkpointing is enabled. */
+	/**
+	 * 是否增量 checkpoint
+	 */
 	private final TernaryBoolean enableIncrementalCheckpointing;
 
 	/** Thread number used to transfer (download and upload) state, default value: 1. */
+	/**
+	 * 用于传输(下载和上传)状态的线程数量，默认为 1
+	 */
 	private int numberOfTransferThreads;
 
 	/**
@@ -146,6 +158,9 @@ public class RocksDBStateBackend extends AbstractStateBackend implements Configu
 	 *
 	 * <p>Note: User can still decide in state TTL configuration in state descriptor
 	 * whether the filter is active for particular state or not.
+	 */
+	/**
+	 * 是否启用压缩过滤器来清除带有 TTL 的状态
 	 */
 	private TernaryBoolean enableTtlCompactionFilter;
 
