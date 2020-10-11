@@ -29,6 +29,10 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
  * {@link org.apache.flink.streaming.api.datastream.KeyedStream}.
  */
 
+/**
+ * word count 的 sum 所使用的StreamGroupedReduce类
+ * @param <IN>
+ */
 @Internal
 public class StreamGroupedReduce<IN> extends AbstractUdfStreamOperator<IN, ReduceFunction<IN>>
 		implements OneInputStreamOperator<IN, IN> {
@@ -50,12 +54,14 @@ public class StreamGroupedReduce<IN> extends AbstractUdfStreamOperator<IN, Reduc
 	public void open() throws Exception {
 		super.open();
 		ValueStateDescriptor<IN> stateId = new ValueStateDescriptor<>(STATE_NAME, serializer);
+		//通过RuntimeContext访问？
 		values = getPartitionedState(stateId);
 	}
 
 	@Override
 	public void processElement(StreamRecord<IN> element) throws Exception {
 		IN value = element.getValue();
+		//访问和修改当前key对应的state信息
 		IN currentValue = values.value();
 
 		if (currentValue != null) {

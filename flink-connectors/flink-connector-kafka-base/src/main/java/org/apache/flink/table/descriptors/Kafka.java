@@ -151,7 +151,9 @@ public class Kafka extends ConnectorDescriptor {
 
 	/**
 	 * Configures to start reading partitions from specific offsets, set independently for each partition.
+	 * 配置为从特定偏移量开始读取分区，为每个分区独立设置
 	 * Resets previously set offsets.
+	 * 重置先前设置的偏移
 	 *
 	 * @param specificOffsets the specified offsets for partitions
 	 * @see FlinkKafkaConsumerBase#setStartFromSpecificOffsets(Map)

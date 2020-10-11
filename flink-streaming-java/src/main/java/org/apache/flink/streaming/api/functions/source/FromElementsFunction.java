@@ -98,6 +98,7 @@ public class FromElementsFunction<T> implements SourceFunction<T>, CheckpointedF
 		this.numElements = count;
 	}
 
+	//通过FunctionInitializationContext访问state
 	@Override
 	public void initializeState(FunctionInitializationContext context) throws Exception {
 		Preconditions.checkState(this.checkpointedState == null,
@@ -161,6 +162,7 @@ public class FromElementsFunction<T> implements SourceFunction<T>, CheckpointedF
 			}
 
 			synchronized (lock) {
+				//这里就是将批处理也当做流一条条向下游提交的证明
 				ctx.collect(next);
 				numElementsEmitted++;
 			}
@@ -200,6 +202,7 @@ public class FromElementsFunction<T> implements SourceFunction<T>, CheckpointedF
 		Preconditions.checkState(this.checkpointedState != null,
 			"The " + getClass().getSimpleName() + " has not been properly initialized.");
 
+		//在snapshotState时将状态数据存储到state中
 		this.checkpointedState.clear();
 		this.checkpointedState.add(this.numElementsEmitted);
 	}
