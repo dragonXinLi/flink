@@ -65,8 +65,8 @@ LICENSES_TEMP_PATH = os.path.join(TEMP_PATH, "licenses")
 PLUGINS_TEMP_PATH = os.path.join(TEMP_PATH, "plugins")
 SCRIPTS_TEMP_PATH = os.path.join(TEMP_PATH, "bin")
 
-LICENSE_FILE_TEMP_PATH = os.path.join("pyflink", "LICENSE")
-NOTICE_FILE_TEMP_PATH = os.path.join("pyflink", "NOTICE")
+LICENSE_FILE_TEMP_PATH = os.path.join(this_directory, "LICENSE")
+NOTICE_FILE_TEMP_PATH = os.path.join(this_directory, "NOTICE")
 README_FILE_TEMP_PATH = os.path.join("pyflink", "README.txt")
 
 in_flink_source = os.path.isfile("../flink-java/src/main/java/org/apache/flink/api/java/"
@@ -193,7 +193,7 @@ run sdist.
         'pyflink.bin': TEMP_PATH + '/bin'}
 
     PACKAGE_DATA = {
-        'pyflink': ['LICENSE', 'README.txt'],
+        'pyflink': ['README.txt'],
         'pyflink.lib': ['*.jar'],
         'pyflink.opt': ['*.*', '*/*'],
         'pyflink.conf': ['*'],
@@ -206,9 +206,6 @@ run sdist.
         PACKAGES.append('pyflink.licenses')
         PACKAGE_DIR['pyflink.licenses'] = TEMP_PATH + '/licenses'
         PACKAGE_DATA['pyflink.licenses'] = ['*']
-
-    if exist_notice:
-        PACKAGE_DATA['pyflink'].append('NOTICE')
 
     setup(
         name='apache-flink',
@@ -224,7 +221,8 @@ run sdist.
         author_email='dev@flink.apache.org',
         python_requires='>=3.5',
         install_requires=['py4j==0.10.8.1', 'python-dateutil==2.8.0', 'apache-beam==2.15.0',
-                          'cloudpickle==1.2.2', 'avro-python3>=1.8.1,<=1.9.1'],
+                          'cloudpickle==1.2.2', 'avro-python3>=1.8.1,<=1.9.1',
+                          'pyarrow>=0.11.1,<0.14.0'],
         tests_require=['pytest==4.4.1'],
         description='Apache Flink Python API',
         long_description=long_description,

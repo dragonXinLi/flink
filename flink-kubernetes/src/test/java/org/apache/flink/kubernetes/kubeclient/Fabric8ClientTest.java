@@ -44,12 +44,14 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.configuration.GlobalConfiguration.FLINK_CONF_FILENAME;
+import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -145,9 +147,10 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 		assertThat(service.getSpec().getPorts().stream().map(ServicePort::getPort).collect(Collectors.toList()),
 			Matchers.hasItems(8081));
 
-		final Endpoint endpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
-		assertEquals(MOCK_SERVICE_IP, endpoint.getAddress());
-		assertEquals(8081, endpoint.getPort());
+		final Optional<Endpoint> endpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		assertThat(endpoint.isPresent(), is(true));
+		assertThat(endpoint.get().getAddress(), is(MOCK_SERVICE_IP));
+		assertThat(endpoint.get().getPort(), is(8081));
 	}
 
 	@Test
@@ -176,9 +179,11 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 		assertEquals(1, jmPodSpec.getContainers().size());
 		final Container jmContainer = jmPodSpec.getContainers().get(0);
 
-		assertEquals(clusterSpecification.getMasterMemoryMB() + Constants.RESOURCE_UNIT_MB,
+		assertEquals(
+			String.valueOf(clusterSpecification.getMasterMemoryMB()),
 			jmContainer.getResources().getRequests().get(Constants.RESOURCE_NAME_MEMORY).getAmount());
-		assertEquals(clusterSpecification.getMasterMemoryMB() + Constants.RESOURCE_UNIT_MB,
+		assertEquals(
+			String.valueOf(clusterSpecification.getMasterMemoryMB()),
 			jmContainer.getResources().getLimits().get(Constants.RESOURCE_NAME_MEMORY).getAmount());
 
 		assertThat(jmContainer.getPorts().stream().map(ContainerPort::getContainerPort).collect(Collectors.toList()),
@@ -197,7 +202,7 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 	}
 
 	@Test
-	public void testCreateTaskManagerPod() {
+	public void testCreateTaskManagerPod() throws ExecutionException, InterruptedException {
 		final String podName = "taskmanager-1";
 		final List<String> commands = Arrays.asList("/bin/bash", "-c", "start-command-of-taskmanager");
 		final int tmMem = 1234;
@@ -210,7 +215,7 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 			tmMem,
 			tmCpu,
 			env);
-		flinkKubeClient.createTaskManagerPod(parameter);
+		flinkKubeClient.createTaskManagerPod(parameter).get();
 
 		final List<Pod> pods = kubeClient.pods().list().getItems();
 		assertEquals(1, pods.size());
@@ -229,9 +234,11 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 		assertEquals(CONTAINER_IMAGE, tmContainer.getImage());
 		assertEquals(commands, tmContainer.getArgs());
 
-		assertEquals(tmMem + Constants.RESOURCE_UNIT_MB,
+		assertEquals(
+			String.valueOf(tmMem),
 			tmContainer.getResources().getRequests().get(Constants.RESOURCE_NAME_MEMORY).getAmount());
-		assertEquals(tmMem + Constants.RESOURCE_UNIT_MB,
+		assertEquals(
+			String.valueOf(tmMem),
 			tmContainer.getResources().getLimits().get(Constants.RESOURCE_NAME_MEMORY).getAmount());
 		assertEquals(String.valueOf(tmCpu),
 			tmContainer.getResources().getRequests().get(Constants.RESOURCE_NAME_CPU).getAmount());
@@ -251,28 +258,29 @@ public class Fabric8ClientTest extends KubernetesTestBase {
 		assertEquals(FLINK_CONF_FILENAME, tmContainer.getVolumeMounts().get(0).getSubPath());
 
 		// Stop the pod
-		flinkKubeClient.stopPod(podName);
+		flinkKubeClient.stopPod(podName).get();
 		assertEquals(0, kubeClient.pods().list().getItems().size());
 	}
 
 	@Test
 	public void testServiceLoadBalancerWithNoIP() throws Exception {
 		final String hostName = "test-host-name";
-		final Endpoint endpoint = getRestEndpoint(hostName, "");
-		assertEquals(hostName, endpoint.getAddress());
-		assertEquals(8081, endpoint.getPort());
+		final Optional<Endpoint> endpoint = getRestEndpoint(hostName, "");
+		assertThat(endpoint.isPresent(), is(true));
+		assertThat(endpoint.get().getAddress(), is(hostName));
+		assertThat(endpoint.get().getPort(), is(8081));
 	}
 
 	@Test
 	public void testServiceLoadBalancerEmptyHostAndIP() throws Exception {
-		final Endpoint endpoint1 = getRestEndpoint("", "");
-		assertNull(endpoint1);
+		final Optional<Endpoint> endpoint1 = getRestEndpoint("", "");
+		assertThat(endpoint1.isPresent(), is(false));
 
-		final Endpoint endpoint2 = getRestEndpoint(null, null);
-		assertNull(endpoint2);
+		final Optional<Endpoint> endpoint2 = getRestEndpoint(null, null);
+		assertThat(endpoint2.isPresent(), is(false));
 	}
 
-	private Endpoint getRestEndpoint(String hostName, String ip) throws Exception {
+	private Optional<Endpoint> getRestEndpoint(String hostName, String ip) throws Exception {
 		final String clusterId = "flink-on-k8s-cluster-test";
 		mockRestServiceActionWatcher(clusterId);
 		mockGetRestService(clusterId, hostName, ip);

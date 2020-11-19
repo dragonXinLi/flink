@@ -64,7 +64,7 @@ final Schema schema = new Schema()
     .field("product", DataTypes.STRING())
     .field("amount", DataTypes.INT());
 
-tableEnv.connect(new FileSystem("/path/to/file"))
+tableEnv.connect(new FileSystem().path("/path/to/file"))
     .withFormat(...)
     .withSchema(schema)
     .createTemporaryTable("RubberOrders");
@@ -101,7 +101,7 @@ val schema = new Schema()
     .field("product", DataTypes.STRING())
     .field("amount", DataTypes.INT())
 
-tableEnv.connect(new FileSystem("/path/to/file"))
+tableEnv.connect(new FileSystem().path("/path/to/file"))
     .withFormat(...)
     .withSchema(schema)
     .createTemporaryTable("RubberOrders")
@@ -471,7 +471,8 @@ SELECT DISTINCT users FROM Orders
     <tr>
       <td>
         <strong>Grouping sets, Rollup, Cube</strong><br>
-        <span class="label label-primary">Batch</span>
+        <span class="label label-primary">Batch</span> <span class="label label-primary">Streaming</span>
+        <span class="label label-info">Result Updating</span>
       </td>
       <td>
 {% highlight sql %}
@@ -479,6 +480,7 @@ SELECT SUM(amount)
 FROM Orders
 GROUP BY GROUPING SETS ((user), (product))
 {% endhighlight %}
+        <p><b>Note:</b> Streaming mode Grouping sets, Rollup and Cube are only supported in Blink planner.</p>
       </td>
     </tr>
     <tr>

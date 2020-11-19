@@ -340,8 +340,8 @@ function check_logs_for_errors {
       | grep -v "[Terror] modules" \
       | grep -ic "error" || true)
   if [[ ${error_count} -gt 0 ]]; then
-    echo "Found error in log files:"
-    cat $FLINK_DIR/log/*
+    echo "Found error in log files; printing first 500 lines; see full logs for details:"
+    find $FLINK_DIR/log/ -exec head --lines=500 {} \;
     EXIT_CODE=1
   else
     echo "No errors in log files."
@@ -376,8 +376,8 @@ function check_logs_for_exceptions {
    | grep -v "org.apache.flink.runtime.JobException: Recovery is suppressed" \
    | grep -ic "exception" || true)
   if [[ ${exception_count} -gt 0 ]]; then
-    echo "Found exception in log files:"
-    cat $FLINK_DIR/log/*
+    echo "Found exception in log files; printing first 500 lines; see full logs for details:"
+    find $FLINK_DIR/log/ -exec head --lines=500 {} \;
     EXIT_CODE=1
   else
     echo "No exceptions in log files."
@@ -396,8 +396,8 @@ function check_logs_for_non_empty_out_files {
     $FLINK_DIR/log/*.out\
    | grep "." \
    > /dev/null; then
-    echo "Found non-empty .out files:"
-    cat $FLINK_DIR/log/*.out
+    echo "Found non-empty .out files; printing first 500 lines; see full logs for details:"
+    find $FLINK_DIR/log/ -name '*.out' -exec head --lines=500 {} \;
     EXIT_CODE=1
   else
     echo "No non-empty .out files."
@@ -717,7 +717,8 @@ function wait_for_restart_to_complete {
     local expected_num_restarts=$((current_num_restarts + 1))
 
     echo "Waiting for restart to happen"
-    while ! [[ ${current_num_restarts} -eq ${expected_num_restarts} ]]; do
+    while [[ ${current_num_restarts} -lt ${expected_num_restarts} ]]; do
+        echo "Still waiting for restarts. Expected: $expected_num_restarts Current: $current_num_restarts"
         sleep 5
         current_num_restarts=$(get_job_metric ${jobid} "fullRestarts")
         if [[ -z ${current_num_restarts} ]]; then

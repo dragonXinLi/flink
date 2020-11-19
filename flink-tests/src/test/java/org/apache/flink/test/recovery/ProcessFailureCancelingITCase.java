@@ -233,15 +233,15 @@ public class ProcessFailureCancelingITCase extends TestLogger {
 			Throwable error = errorRef[0];
 			assertNotNull("The program did not fail properly", error);
 
-			assertTrue(error.getCause() instanceof ProgramInvocationException);
+			assertTrue(error instanceof ProgramInvocationException);
 			// all seems well :-)
 		}
 		catch (Exception e) {
-			printProcessLog("TaskManager", taskManagerProcess.getOutput().toString());
+			printProcessLog("TaskManager", taskManagerProcess.getErrorOutput().toString());
 			throw e;
 		}
 		catch (Error e) {
-			printProcessLog("TaskManager 1", taskManagerProcess.getOutput().toString());
+			printProcessLog("TaskManager 1", taskManagerProcess.getErrorOutput().toString());
 			throw e;
 		}
 		finally {

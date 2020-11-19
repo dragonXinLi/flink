@@ -18,6 +18,7 @@
 
 package org.apache.flink.table.client.gateway.local;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.dag.Pipeline;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -62,8 +63,6 @@ import org.apache.flink.types.Row;
 import org.apache.flink.util.JarUtils;
 import org.apache.flink.util.StringUtils;
 
-import org.apache.flink.shaded.guava18.com.google.common.collect.ImmutableMap;
-
 import org.apache.commons.cli.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +77,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -246,7 +244,8 @@ public class LocalExecutor implements Executor {
 	/**
 	 * Get the existed {@link ExecutionContext} from contextMap, or thrown exception if does not exist.
 	 */
-	private ExecutionContext<?> getExecutionContext(String sessionId) throws SqlExecutionException {
+	@VisibleForTesting
+	protected ExecutionContext<?> getExecutionContext(String sessionId) throws SqlExecutionException {
 		ExecutionContext<?> context = this.contextMap.get(sessionId);
 		if (context == null) {
 			throw new SqlExecutionException("Invalid session identifier: " + sessionId);
@@ -281,7 +280,13 @@ public class LocalExecutor implements Executor {
 	public void setSessionProperty(String sessionId, String key, String value) throws SqlExecutionException {
 		ExecutionContext<?> context = getExecutionContext(sessionId);
 		Environment env = context.getEnvironment();
-		Environment newEnv = Environment.enrich(env, ImmutableMap.of(key, value), ImmutableMap.of());
+		Environment newEnv;
+		try {
+			newEnv = Environment.enrich(env, Collections.singletonMap(key, value), Collections.emptyMap());
+		} catch (Throwable t) {
+			throw new SqlExecutionException("Could not set session property.", t);
+		}
+
 		// Renew the ExecutionContext by new environment.
 		// Book keep all the session states of current ExecutionContext then
 		// re-register them into the new one.
@@ -642,10 +647,6 @@ public class LocalExecutor implements Executor {
 			});
 		}
 
-		// store the result with a unique id
-		final String resultId = UUID.randomUUID().toString();
-		resultStore.storeResult(resultId, result);
-
 		// create a copy so that we can change settings without affecting the original config
 		Configuration configuration = new Configuration(context.getFlinkConfig());
 		// for queries we wait for the job result, so run in attached mode
@@ -657,11 +658,23 @@ public class LocalExecutor implements Executor {
 		final ProgramDeployer deployer = new ProgramDeployer(
 				configuration, jobName, pipeline);
 
+		JobClient jobClient;
+		// blocking deployment
+		try {
+			jobClient = deployer.deploy().get();
+		} catch (Exception e) {
+			throw new SqlExecutionException("Error while submitting job.", e);
+		}
+
+		String jobId = jobClient.getJobID().toString();
+		// store the result under the JobID
+		resultStore.storeResult(jobId, result);
+
 		// start result retrieval
-		result.startRetrieval(deployer);
+		result.startRetrieval(jobClient);
 
 		return new ResultDescriptor(
-				resultId,
+				jobId,
 				removeTimeAttributes(table.getSchema()),
 				result.isMaterialized());
 	}

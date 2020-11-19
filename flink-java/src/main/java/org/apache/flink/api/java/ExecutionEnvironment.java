@@ -149,7 +149,18 @@ public class ExecutionEnvironment {
 	 */
 	@PublicEvolving
 	public ExecutionEnvironment(final Configuration configuration) {
-		this(DefaultExecutorServiceLoader.INSTANCE, configuration, null);
+		this(configuration, null);
+	}
+
+	/**
+	 * Creates a new {@link ExecutionEnvironment} that will use the given {@link Configuration} to
+	 * configure the {@link PipelineExecutor}.
+	 *
+	 * <p>In addition, this constructor allows specifying the user code {@link ClassLoader}.
+	 */
+	@PublicEvolving
+	public ExecutionEnvironment(final Configuration configuration, final ClassLoader userClassloader) {
+		this(new DefaultExecutorServiceLoader(), configuration, userClassloader);
 	}
 
 	/**
@@ -213,6 +224,13 @@ public class ExecutionEnvironment {
 	 */
 	public ExecutionConfig getConfig() {
 		return config;
+	}
+
+	/**
+	 * Gets the config JobListeners.
+	 */
+	protected List<JobListener> getJobListeners() {
+		return jobListeners;
 	}
 
 	/**
@@ -870,10 +888,15 @@ public class ExecutionEnvironment {
 					jobListener -> jobListener.onJobExecuted(lastJobExecutionResult, null));
 
 		} catch (Throwable t) {
+			// get() on the JobExecutionResult Future will throw an ExecutionException. This
+			// behaviour was largely not there in Flink versions before the PipelineExecutor
+			// refactoring so we should strip that exception.
+			Throwable strippedException = ExceptionUtils.stripExecutionException(t);
+
 			jobListeners.forEach(jobListener -> {
-				jobListener.onJobExecuted(null, ExceptionUtils.stripExecutionException(t));
+				jobListener.onJobExecuted(null, strippedException);
 			});
-			ExceptionUtils.rethrowException(t);
+			ExceptionUtils.rethrowException(strippedException);
 		}
 
 		return lastJobExecutionResult;
@@ -939,7 +962,7 @@ public class ExecutionEnvironment {
 			"Cannot find compatible factory for specified execution.target (=%s)",
 			configuration.get(DeploymentOptions.TARGET));
 
-		CompletableFuture<JobClient> jobClientFuture = executorFactory
+		CompletableFuture<? extends JobClient> jobClientFuture = executorFactory
 			.getExecutor(configuration)
 			.execute(plan, configuration);
 

@@ -70,8 +70,8 @@ import org.apache.flink.runtime.rpc.akka.AkkaRpcService;
 import org.apache.flink.runtime.rpc.akka.AkkaRpcServiceConfiguration;
 import org.apache.flink.runtime.taskexecutor.TaskExecutor;
 import org.apache.flink.runtime.taskexecutor.TaskManagerRunner;
+import org.apache.flink.runtime.util.ClusterEntrypointUtils;
 import org.apache.flink.runtime.util.ExecutorThreadFactory;
-import org.apache.flink.runtime.util.Hardware;
 import org.apache.flink.runtime.webmonitor.retriever.LeaderRetriever;
 import org.apache.flink.runtime.webmonitor.retriever.MetricQueryServiceRetriever;
 import org.apache.flink.runtime.webmonitor.retriever.impl.RpcGatewayRetriever;
@@ -209,14 +209,14 @@ public class MiniCluster implements JobExecutorService, AutoCloseableAsync {
 
 	public CompletableFuture<URI> getRestAddress() {
 		synchronized (lock) {
-			checkState(running, "MiniCluster is not yet running.");
+			checkState(running, "MiniCluster is not yet running or has already been shut down.");
 			return webMonitorLeaderRetriever.getLeaderFuture().thenApply(FunctionUtils.uncheckedFunction(addressLeaderIdTuple -> new URI(addressLeaderIdTuple.f0)));
 		}
 	}
 
 	public ClusterInformation getClusterInformation() {
 		synchronized (lock) {
-			checkState(running, "MiniCluster is not yet running.");
+			checkState(running, "MiniCluster is not yet running or has already been shut down.");
 			return new ClusterInformation("localhost", blobServer.getPort());
 		}
 	}
@@ -294,7 +294,7 @@ public class MiniCluster implements JobExecutorService, AutoCloseableAsync {
 					ConfigurationUtils.getSystemResourceMetricsProbingInterval(configuration));
 
 				ioExecutor = Executors.newFixedThreadPool(
-					Hardware.getNumberCPUCores(),
+					ClusterEntrypointUtils.getPoolSize(configuration),
 					new ExecutorThreadFactory("mini-cluster-io"));
 				haServices = createHighAvailabilityServices(configuration, ioExecutor);
 
@@ -675,7 +675,7 @@ public class MiniCluster implements JobExecutorService, AutoCloseableAsync {
 	@VisibleForTesting
 	protected CompletableFuture<DispatcherGateway> getDispatcherGatewayFuture() {
 		synchronized (lock) {
-			checkState(running, "MiniCluster is not yet running.");
+			checkState(running, "MiniCluster is not yet running or has already been shut down.");
 			return dispatcherGatewayRetriever.getFuture();
 		}
 	}

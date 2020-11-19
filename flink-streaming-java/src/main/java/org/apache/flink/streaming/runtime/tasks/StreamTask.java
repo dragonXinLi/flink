@@ -31,6 +31,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
+import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.execution.CancelTaskException;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.api.CancelCheckpointMarker;
@@ -75,6 +76,7 @@ import org.apache.flink.streaming.runtime.tasks.mailbox.MailboxProcessor;
 import org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailbox;
 import org.apache.flink.streaming.runtime.tasks.mailbox.TaskMailboxImpl;
 import org.apache.flink.util.ExceptionUtils;
+import org.apache.flink.util.InstantiationUtil;
 import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
@@ -83,13 +85,14 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -206,6 +209,9 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 
 	/** Flag to mark this task as canceled. */
 	private volatile boolean canceled;
+
+	/** Flag to mark this task as failing, i.e. if an exception has occurred inside {@link #invoke()}. */
+	private volatile boolean failing;
 
 	private boolean disposedOperators;
 
@@ -478,32 +484,18 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			afterInvoke();
 		}
 		finally {
+			failing = !canceled;
 			cleanUpInvoke();
 		}
 	}
 
 	private void runMailboxLoop() throws Exception {
-		try {
-			mailboxProcessor.runMailboxLoop();
-		}
-		catch (Exception e) {
-			Optional<InterruptedException> interruption = ExceptionUtils.findThrowable(e, InterruptedException.class);
-			if (interruption.isPresent()) {
-				if (!canceled) {
-					Thread.currentThread().interrupt();
-					throw interruption.get();
-				}
-			} else if (canceled) {
-				LOG.warn("Error while canceling task.", e);
-			}
-			else {
-				throw e;
-			}
-		}
+		mailboxProcessor.runMailboxLoop();
 	}
 
 	private void afterInvoke() throws Exception {
 		LOG.debug("Finished task {}", getName());
+		getCompletionFuture().exceptionally(unused -> null).join();
 
 		// make sure no further checkpoint and notification actions happen.
 		// we make sure that no other thread is currently in the locked scope before
@@ -542,6 +534,7 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 	}
 
 	private void cleanUpInvoke() throws Exception {
+		getCompletionFuture().exceptionally(unused -> null).join();
 		// clean up everything we initialized
 		isRunning = false;
 
@@ -591,6 +584,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 		mailboxProcessor.close();
 	}
 
+	protected CompletableFuture<Void> getCompletionFuture() {
+		return FutureUtils.completedVoidFuture();
+	}
+
 	@Override
 	public final void cancel() throws Exception {
 		isRunning = false;
@@ -602,8 +599,16 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			cancelTask();
 		}
 		finally {
-			mailboxProcessor.allActionsCompleted();
-			cancelables.close();
+			getCompletionFuture()
+				.whenComplete((unusedResult, unusedError) -> {
+					// WARN: the method is called from the task thread but the callback can be invoked from a different thread
+					mailboxProcessor.allActionsCompleted();
+					try {
+						cancelables.close();
+					} catch (IOException e) {
+						throw new CompletionException(e);
+					}
+				});
 		}
 	}
 
@@ -642,6 +647,10 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 				operatorChain.endNonHeadOperatorInput(allOperators[i - 1]);
 			}
 		}
+	}
+
+	public final boolean isFailing() {
+		return failing;
 	}
 
 	private void shutdownAsyncThreads() throws Exception {
@@ -1241,7 +1250,9 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 					// We only report the exception for the original cause of fail and cleanup.
 					// Otherwise this followup exception could race the original exception in failing the task.
 					try {
-						owner.getEnvironment().declineCheckpoint(checkpointMetaData.getCheckpointId(), checkpointException);
+						owner.getEnvironment().declineCheckpoint(
+								checkpointMetaData.getCheckpointId(),
+								new CheckpointException(CheckpointFailureReason.CHECKPOINT_ASYNC_EXCEPTION, checkpointException));
 					} catch (Exception unhandled) {
 						AsynchronousException asyncException = new AsynchronousException(unhandled);
 						owner.handleAsyncException("Failure in asynchronous checkpoint materialization", asyncException);
@@ -1454,7 +1465,6 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 			Environment environment) {
 		List<RecordWriter<SerializationDelegate<StreamRecord<OUT>>>> recordWriters = new ArrayList<>();
 		List<StreamEdge> outEdgesInOrder = configuration.getOutEdgesInOrder(environment.getUserClassLoader());
-		Map<Integer, StreamConfig> chainedConfigs = configuration.getTransitiveChainedTaskConfigsWithSelf(environment.getUserClassLoader());
 
 		for (int i = 0; i < outEdgesInOrder.size(); i++) {
 			StreamEdge edge = outEdgesInOrder.get(i);
@@ -1464,19 +1474,30 @@ public abstract class StreamTask<OUT, OP extends StreamOperator<OUT>>
 					i,
 					environment,
 					environment.getTaskInfo().getTaskName(),
-					chainedConfigs.get(edge.getSourceId()).getBufferTimeout()));
+					edge.getBufferTimeout()));
 		}
 		return recordWriters;
 	}
 
+	@SuppressWarnings("unchecked")
 	private static <OUT> RecordWriter<SerializationDelegate<StreamRecord<OUT>>> createRecordWriter(
 			StreamEdge edge,
 			int outputIndex,
 			Environment environment,
 			String taskName,
 			long bufferTimeout) {
-		@SuppressWarnings("unchecked")
-		StreamPartitioner<OUT> outputPartitioner = (StreamPartitioner<OUT>) edge.getPartitioner();
+
+		StreamPartitioner<OUT> outputPartitioner = null;
+
+		// Clones the partition to avoid multiple stream edges sharing the same stream partitioner,
+		// like the case of https://issues.apache.org/jira/browse/FLINK-14087.
+		try {
+			outputPartitioner = InstantiationUtil.clone(
+				(StreamPartitioner<OUT>) edge.getPartitioner(),
+				environment.getUserClassLoader());
+		} catch (Exception e) {
+			ExceptionUtils.rethrow(e);
+		}
 
 		LOG.debug("Using partitioner {} for output {} of task {}", outputPartitioner, outputIndex, taskName);
 

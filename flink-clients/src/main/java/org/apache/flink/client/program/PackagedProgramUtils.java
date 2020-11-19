@@ -53,9 +53,15 @@ public class PackagedProgramUtils {
 			int defaultParallelism,
 			@Nullable JobID jobID,
 			boolean suppressOutput) throws ProgramInvocationException {
-		final Pipeline pipeline = getPipelineFromProgram(packagedProgram, defaultParallelism, suppressOutput);
-		final JobGraph jobGraph = FlinkPipelineTranslationUtil.getJobGraph(pipeline, configuration, defaultParallelism);
-
+		final JobGraph jobGraph;
+		final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+		final Pipeline pipeline = getPipelineFromProgram(packagedProgram, configuration, defaultParallelism, suppressOutput);
+		try {
+			Thread.currentThread().setContextClassLoader(packagedProgram.getUserCodeClassLoader());
+			jobGraph = FlinkPipelineTranslationUtil.getJobGraph(pipeline, configuration, defaultParallelism);
+		} finally {
+			Thread.currentThread().setContextClassLoader(contextClassLoader);
+		}
 		if (jobID != null) {
 			jobGraph.setJobID(jobID);
 		}
@@ -87,6 +93,7 @@ public class PackagedProgramUtils {
 
 	public static Pipeline getPipelineFromProgram(
 			PackagedProgram prog,
+			Configuration configuration,
 			int parallelism,
 			boolean suppressOutput) throws CompilerException, ProgramInvocationException {
 		final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
@@ -94,7 +101,7 @@ public class PackagedProgramUtils {
 			Thread.currentThread().setContextClassLoader(prog.getUserCodeClassLoader());
 
 			// temporary hack to support the optimizer plan preview
-			OptimizerPlanEnvironment env = new OptimizerPlanEnvironment();
+			OptimizerPlanEnvironment env = new OptimizerPlanEnvironment(configuration, prog.getUserCodeClassLoader());
 			if (parallelism > 0) {
 				env.setParallelism(parallelism);
 			}

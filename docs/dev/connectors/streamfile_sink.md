@@ -84,7 +84,7 @@ import org.apache.flink.streaming.api.functions.sink.filesystem.rollingpolicies.
 DataStream<String> input = ...;
 
 final StreamingFileSink<String> sink = StreamingFileSink
-    .forRowFormat(new Path(outputPath), new SimpleStringEncoder<>("UTF-8"))
+    .forRowFormat(new Path(outputPath), new SimpleStringEncoder<String>("UTF-8"))
     .withRollingPolicy(
         DefaultRollingPolicy.builder()
             .withRolloverInterval(TimeUnit.MINUTES.toMillis(15))
@@ -432,6 +432,9 @@ in-progress files will not be transitioned to the "finished" state.
 Given this, when trying to restore from an old checkpoint/savepoint which assumes an in-progress file which was committed
 by subsequent successful checkpoints, Flink will refuse to resume and it will throw an exception as it cannot locate the 
 in-progress file.
+
+<span class="label label-danger">Important Note 4</span>: Currently, the `StreamingFileSink` only supports three filesystems: 
+HDFS, S3, and Local. Flink will throw an exception when using an unsupported filesystem at runtime.
 
 ### S3-specific
 

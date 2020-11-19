@@ -24,6 +24,7 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.accumulators.AccumulatorRegistry;
 import org.apache.flink.runtime.broadcast.BroadcastVariableManager;
@@ -52,6 +53,8 @@ import org.apache.flink.util.Preconditions;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Future;
+
+import static org.apache.flink.runtime.memory.MemoryManager.DEFAULT_PAGE_SIZE;
 
 /**
  * A minimally implemented {@link Environment} that provides the functionality required to run the
@@ -98,8 +101,8 @@ public class SavepointEnvironment implements Environment {
 
 		this.registry = new KvStateRegistry().createTaskRegistry(jobID, vertexID);
 		this.taskStateManager = new SavepointTaskStateManager(prioritizedOperatorSubtaskState);
-		this.ioManager = new IOManagerAsync();
-		this.memoryManager = MemoryManager.forDefaultPageSize(64 * 1024 * 1024);
+		this.ioManager = new IOManagerAsync(ConfigurationUtils.parseTempDirectories(configuration));
+		this.memoryManager = MemoryManager.create(64 * 1024 * 1024, DEFAULT_PAGE_SIZE);
 		this.accumulatorRegistry = new AccumulatorRegistry(jobID, attemptID);
 	}
 

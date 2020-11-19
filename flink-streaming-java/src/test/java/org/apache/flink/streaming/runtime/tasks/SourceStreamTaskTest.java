@@ -312,7 +312,8 @@ public class SourceStreamTaskTest {
 		try {
 			testHarness.waitForTaskCompletion();
 		} catch (Throwable t) {
-			if (!ExceptionUtils.findThrowable(t, CancelTaskException.class).isPresent()) {
+			if (!ExceptionUtils.findThrowable(t, InterruptedException.class).isPresent() &&
+				!ExceptionUtils.findThrowable(t, CancelTaskException.class).isPresent()) {
 				throw t;
 			}
 		}
@@ -406,7 +407,7 @@ public class SourceStreamTaskTest {
 		try {
 			testHarness.waitForTaskCompletion();
 		} catch (Exception e) {
-			if (!(e.getCause() instanceof InterruptedException)) {
+			if (!ExceptionUtils.findThrowable(e, InterruptedException.class).isPresent()) {
 				throw e;
 			}
 		}
@@ -461,6 +462,24 @@ public class SourceStreamTaskTest {
 		testHarness.getTask().finishTask();
 
 		testHarness.waitForTaskCompletion();
+	}
+
+	@Test
+	public void testWaitsForSourceThreadOnCancel() throws Exception {
+		StreamTaskTestHarness<String> harness = new StreamTaskTestHarness<>(SourceStreamTask::new, BasicTypeInfo.STRING_TYPE_INFO);
+
+		harness.setupOutputForSingletonOperatorChain();
+		harness.getStreamConfig().setStreamOperator(new StreamSource<>(new NonStoppingSource()));
+
+		harness.invoke();
+		NonStoppingSource.waitForStart();
+
+		harness.getTask().cancel();
+		harness.waitForTaskCompletion(500, true); // allow task to exit prematurely
+		assertTrue(harness.taskThread.isAlive());
+
+		NonStoppingSource.forceCancel();
+		harness.waitForTaskCompletion(Long.MAX_VALUE, true);
 	}
 
 	private static class MockSource implements SourceFunction<Tuple2<Long, Integer>>, ListCheckpointed<Serializable> {
@@ -566,6 +585,37 @@ public class SourceStreamTaskTest {
 				Thread.sleep(checkpointInterval);
 			}
 			return true;
+		}
+	}
+
+	private static class NonStoppingSource implements SourceFunction<String> {
+		private static final long serialVersionUID = 1L;
+		private static boolean running = true;
+		private static CompletableFuture<Void> startFuture = new CompletableFuture<>();
+
+		@Override
+		public void run(SourceContext<String> ctx) throws Exception {
+			startFuture.complete(null);
+			while (running) {
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException e) {
+					// ignore
+				}
+			}
+		}
+
+		@Override
+		public void cancel() {
+			// do nothing - ignore usual cancellation
+		}
+
+		static void forceCancel() {
+			running = false;
+		}
+
+		static void waitForStart() {
+			startFuture.join();
 		}
 	}
 

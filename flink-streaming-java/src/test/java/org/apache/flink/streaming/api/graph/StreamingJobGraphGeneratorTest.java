@@ -44,6 +44,8 @@ import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
 import org.apache.flink.runtime.jobmanager.scheduler.CoLocationGroup;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.runtime.operators.util.TaskConfig;
+import org.apache.flink.streaming.api.CheckpointingMode;
+import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
@@ -146,18 +148,25 @@ public class StreamingJobGraphGeneratorTest extends TestLogger {
 	}
 
 	/**
-	 * Tests that disabled checkpointing sets the checkpointing interval to Long.MAX_VALUE.
+	 * Tests that disabled checkpointing sets the checkpointing interval to Long.MAX_VALUE and the checkpoint mode to
+	 * {@link CheckpointingMode#AT_LEAST_ONCE}.
 	 */
 	@Test
 	public void testDisabledCheckpointing() throws Exception {
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-		StreamGraph streamGraph = new StreamGraph(env.getConfig(), env.getCheckpointConfig(), SavepointRestoreSettings.none());
+		env.fromElements(0).print();
+		StreamGraph streamGraph = env.getStreamGraph();
 		assertFalse("Checkpointing enabled", streamGraph.getCheckpointConfig().isCheckpointingEnabled());
 
 		JobGraph jobGraph = StreamingJobGraphGenerator.createJobGraph(streamGraph);
 
 		JobCheckpointingSettings snapshottingSettings = jobGraph.getCheckpointingSettings();
 		assertEquals(Long.MAX_VALUE, snapshottingSettings.getCheckpointCoordinatorConfiguration().getCheckpointInterval());
+		assertFalse(snapshottingSettings.getCheckpointCoordinatorConfiguration().isExactlyOnce());
+
+		List<JobVertex> verticesSorted = jobGraph.getVerticesSortedTopologicallyFromSources();
+		StreamConfig streamConfig = new StreamConfig(verticesSorted.get(0).getConfiguration());
+		assertEquals(CheckpointingMode.AT_LEAST_ONCE, streamConfig.getCheckpointMode());
 	}
 
 	@Test
@@ -495,6 +504,32 @@ public class StreamingJobGraphGeneratorTest extends TestLogger {
 		// UNDEFINED shuffle mode is translated into PIPELINED_BOUNDED result partition by default
 		assertEquals(ResultPartitionType.PIPELINED_BOUNDED,
 			sourceAndMapVertex.getProducedDataSets().get(0).getResultType());
+	}
+
+	@Test(expected = UnsupportedOperationException.class)
+	public void testConflictShuffleModeWithBufferTimeout() {
+		testCompatibleShuffleModeWithBufferTimeout(ShuffleMode.BATCH);
+	}
+
+	@Test
+	public void testNormalShuffleModeWithBufferTimeout() {
+		testCompatibleShuffleModeWithBufferTimeout(ShuffleMode.PIPELINED);
+	}
+
+	private void testCompatibleShuffleModeWithBufferTimeout(ShuffleMode shuffleMode) {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+		env.setBufferTimeout(100);
+
+		DataStream<Integer> sourceDataStream = env.fromElements(1, 2, 3);
+		PartitionTransformation<Integer> transformation = new PartitionTransformation<>(
+			sourceDataStream.getTransformation(),
+			new RebalancePartitioner<>(),
+			shuffleMode);
+
+		DataStream<Integer> partitionStream = new DataStream<>(env, transformation);
+		partitionStream.map(value -> value).print();
+
+		StreamingJobGraphGenerator.createJobGraph(env.getStreamGraph());
 	}
 
 	/**
@@ -852,6 +887,25 @@ public class StreamingJobGraphGeneratorTest extends TestLogger {
 		partitioned.map(v -> v).name("map2");
 
 		return env.getStreamGraph();
+	}
+
+	/**
+	 * Verifies fix for FLINK-19109, where WatermarkGenerator cannot be chained to ContinuousFileReaderOperator in event
+	 * time.
+	 */
+	@Test
+	public void testContinuousFileReaderOperatorNotChained() {
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		// set parallelism to 2 to avoid chaining with source in case when available processors is 1.
+		env.setParallelism(2);
+		env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+		env.readTextFile("file:///dummy").print();
+		JobGraph jobGraph = StreamingJobGraphGenerator.createJobGraph(env.getStreamGraph());
+
+		List<JobVertex> verticesSorted = jobGraph.getVerticesSortedTopologicallyFromSources();
+		assertEquals(3, verticesSorted.size());
 	}
 
 	private void assertSameSlotSharingGroup(JobVertex... vertices) {

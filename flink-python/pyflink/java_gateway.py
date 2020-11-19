@@ -28,10 +28,18 @@ from threading import RLock
 
 from py4j.java_gateway import java_import, JavaGateway, GatewayParameters
 from pyflink.find_flink_home import _find_flink_home
-from pyflink.util.exceptions import install_exception_handler
+from pyflink.util.exceptions import install_exception_handler, install_py4j_hooks
 
 _gateway = None
 _lock = RLock()
+
+
+def is_launch_gateway_disabled():
+    if "PYFLINK_GATEWAY_DISABLED" in os.environ \
+            and os.environ["PYFLINK_GATEWAY_DISABLED"].lower() not in ["0", "false", ""]:
+        return True
+    else:
+        return False
 
 
 def get_gateway():
@@ -51,6 +59,7 @@ def get_gateway():
             # import the flink view
             import_flink_view(_gateway)
             install_exception_handler()
+            install_py4j_hooks()
     return _gateway
 
 
@@ -59,7 +68,11 @@ def launch_gateway():
     """
     launch jvm gateway
     """
-
+    if is_launch_gateway_disabled():
+        raise Exception("It's launching the PythonGatewayServer during Python UDF execution "
+                        "which is unexpected. It usually happens when the job codes are "
+                        "in the top level of the Python script file and are not enclosed in a "
+                        "`if name == 'main'` statement.")
     FLINK_HOME = _find_flink_home()
     # TODO windows support
     on_windows = platform.system() == "Windows"

@@ -34,6 +34,7 @@ import org.apache.flink.configuration.TaskManagerOptions;
 import org.apache.flink.configuration.WebOptions;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.api.config.OptimizerConfigOptions;
 import org.apache.flink.table.catalog.hive.HiveCatalog;
 import org.apache.flink.table.client.config.Environment;
 import org.apache.flink.table.client.config.entries.ExecutionEntry;
@@ -83,6 +84,7 @@ import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -327,6 +329,37 @@ public class LocalExecutorITCase extends TestLogger {
 	}
 
 	@Test
+	public void testSetSessionProperties() throws Exception {
+		final LocalExecutor executor = createDefaultExecutor(clusterClient);
+		String key = OptimizerConfigOptions.TABLE_OPTIMIZER_AGG_PHASE_STRATEGY.key();
+
+		final SessionContext session = new SessionContext("test-session", new Environment());
+		String sessionId = executor.openSession(session);
+		// check the config in Environment
+		assertNull(executor.getSessionProperties(sessionId).get(key));
+		// check the config in TableConfig
+		assertNull(executor.getExecutionContext(sessionId)
+				.getTableEnvironment().getConfig().getConfiguration().getString(key, null));
+
+		// modify config
+		executor.setSessionProperty(sessionId, key, "ONE_PHASE");
+		// check the config in Environment again
+		assertEquals("ONE_PHASE", executor.getSessionProperties(sessionId).get(key));
+		// check the config in TableConfig again
+		assertEquals("ONE_PHASE",
+				executor.getExecutionContext(sessionId)
+						.getTableEnvironment().getConfig().getConfiguration().getString(key, null));
+
+		// reset all properties
+		executor.resetSessionProperties(sessionId);
+		// check the config in Environment
+		assertNull(executor.getSessionProperties(sessionId).get(key));
+		// check the config in TableConfig
+		assertNull(executor.getExecutionContext(sessionId)
+				.getTableEnvironment().getConfig().getConfiguration().getString(key, null));
+	}
+
+	@Test
 	public void testGetSessionProperties() throws Exception {
 		final Executor executor = createDefaultExecutor(clusterClient);
 
@@ -409,7 +442,7 @@ public class LocalExecutorITCase extends TestLogger {
 		executor.closeSession(sessionId);
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void testStreamQueryExecutionChangelog() throws Exception {
 		final URL url = getClass().getClassLoader().getResource("test-data.csv");
 		Objects.requireNonNull(url);
@@ -495,7 +528,7 @@ public class LocalExecutorITCase extends TestLogger {
 		}
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void testStreamQueryExecutionTable() throws Exception {
 		final URL url = getClass().getClassLoader().getResource("test-data.csv");
 		Objects.requireNonNull(url);
@@ -558,7 +591,7 @@ public class LocalExecutorITCase extends TestLogger {
 		}
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void testStreamQueryExecutionLimitedTable() throws Exception {
 		final URL url = getClass().getClassLoader().getResource("test-data.csv");
 		Objects.requireNonNull(url);
@@ -579,7 +612,7 @@ public class LocalExecutorITCase extends TestLogger {
 		executeStreamQueryTable(replaceVars, query, expectedResults);
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void testBatchQueryExecution() throws Exception {
 		final URL url = getClass().getClassLoader().getResource("test-data.csv");
 		Objects.requireNonNull(url);
@@ -657,7 +690,7 @@ public class LocalExecutorITCase extends TestLogger {
 		}
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void ensureExceptionOnFaultySourceInStreamingChangelogMode() throws Exception {
 		final String missingFileName = "missing-source";
 
@@ -687,7 +720,7 @@ public class LocalExecutorITCase extends TestLogger {
 		assertTrue(throwableWithMessage.isPresent());
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void ensureExceptionOnFaultySourceInStreamingTableMode() throws Exception {
 		final String missingFileName = "missing-source";
 
@@ -717,7 +750,7 @@ public class LocalExecutorITCase extends TestLogger {
 		assertTrue(throwableWithMessage.isPresent());
 	}
 
-	@Test(timeout = 30_000L)
+	@Test(timeout = 90_000L)
 	public void ensureExceptionOnFaultySourceInBatch() throws Exception {
 		final String missingFileName = "missing-source";
 

@@ -19,6 +19,11 @@
 package org.apache.flink.core.memory;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.util.ExceptionUtils;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 
@@ -32,6 +37,8 @@ import java.nio.ByteBuffer;
  */
 @Internal
 public final class MemorySegmentFactory {
+	private static final Logger LOG = LoggerFactory.getLogger(MemorySegmentFactory.class);
+	private static final Runnable NO_OP = () -> {};
 
 	/**
 	 * Creates a new memory segment that targets the given heap memory region.
@@ -94,8 +101,32 @@ public final class MemorySegmentFactory {
 	 * @return A new memory segment, backed by unpooled off-heap memory.
 	 */
 	public static MemorySegment allocateUnpooledOffHeapMemory(int size, Object owner) {
-		ByteBuffer memory = ByteBuffer.allocateDirect(size);
-		return new HybridMemorySegment(memory, owner, null);
+		ByteBuffer memory = allocateDirectMemory(size);
+		return new HybridMemorySegment(memory, owner);
+	}
+
+	@VisibleForTesting
+	public static MemorySegment allocateOffHeapUnsafeMemory(int size) {
+		return allocateOffHeapUnsafeMemory(size, null, NO_OP);
+	}
+
+	private static ByteBuffer allocateDirectMemory(int size) {
+		//noinspection ErrorNotRethrown
+		try {
+			return ByteBuffer.allocateDirect(size);
+		} catch (OutOfMemoryError outOfMemoryError) {
+			// TODO: this error handling can be removed in future,
+			// once we find a common way to handle OOM errors in netty threads.
+			// Here we enrich it to propagate better OOM message to the receiver
+			// if it happens in a netty thread.
+			Throwable enrichedOutOfMemoryError = ExceptionUtils.tryEnrichTaskManagerError(outOfMemoryError);
+			if (ExceptionUtils.isDirectOutOfMemoryError(outOfMemoryError)) {
+				LOG.error("Cannot allocate direct memory segment", enrichedOutOfMemoryError);
+			}
+
+			ExceptionUtils.rethrow(enrichedOutOfMemoryError);
+			return null;
+		}
 	}
 
 	/**
@@ -107,12 +138,14 @@ public final class MemorySegmentFactory {
 	 *
 	 * @param size The size of the off-heap unsafe memory segment to allocate.
 	 * @param owner The owner to associate with the off-heap unsafe memory segment.
+	 * @param customCleanupAction A custom action to run upon calling GC cleaner.
 	 * @return A new memory segment, backed by off-heap unsafe memory.
 	 */
-	public static MemorySegment allocateOffHeapUnsafeMemory(int size, Object owner) {
+	public static MemorySegment allocateOffHeapUnsafeMemory(int size, Object owner, Runnable customCleanupAction) {
 		long address = MemoryUtils.allocateUnsafe(size);
 		ByteBuffer offHeapBuffer = MemoryUtils.wrapUnsafeMemoryWithByteBuffer(address, size);
-		return new HybridMemorySegment(offHeapBuffer, owner, MemoryUtils.createMemoryGcCleaner(offHeapBuffer, address));
+		MemoryUtils.createMemoryGcCleaner(offHeapBuffer, address, customCleanupAction);
+		return new HybridMemorySegment(offHeapBuffer, owner);
 	}
 
 	/**
@@ -126,7 +159,7 @@ public final class MemorySegmentFactory {
 	 * @return A new memory segment representing the given off-heap memory.
 	 */
 	public static MemorySegment wrapOffHeapMemory(ByteBuffer memory) {
-		return new HybridMemorySegment(memory, null, null);
+		return new HybridMemorySegment(memory, null);
 	}
 
 }

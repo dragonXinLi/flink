@@ -75,6 +75,7 @@ import org.apache.flink.runtime.util.FatalExitExceptionHandler;
 import org.apache.flink.types.Either;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
+import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.Preconditions;
 import org.apache.flink.util.SerializedValue;
 import org.apache.flink.util.WrappingRuntimeException;
@@ -741,6 +742,8 @@ public class Task implements Runnable, TaskSlotPayload, TaskActions, PartitionPr
 			// an exception was thrown as a side effect of cancelling
 			// ----------------------------------------------------------------
 
+			t = ExceptionUtils.tryEnrichTaskManagerError(t);
+
 			try {
 				// check if the exception is unrecoverable
 				if (ExceptionUtils.isJvmFatalError(t) ||
@@ -1079,8 +1082,7 @@ public class Task implements Runnable, TaskSlotPayload, TaskActions, PartitionPr
 							Runnable cancelWatchdog = new TaskCancelerWatchDog(
 									executingThread,
 									taskManagerActions,
-									taskCancellationTimeout,
-									LOG);
+									taskCancellationTimeout);
 
 							Thread watchDogThread = new Thread(
 									executingThread.getThreadGroup(),
@@ -1457,9 +1459,6 @@ public class Task implements Runnable, TaskSlotPayload, TaskActions, PartitionPr
 	 */
 	private static class TaskCancelerWatchDog implements Runnable {
 
-		/** The logger to report on the fatal condition. */
-		private final Logger log;
-
 		/** The executing task thread that we wait for to terminate. */
 		private final Thread executerThread;
 
@@ -1472,12 +1471,10 @@ public class Task implements Runnable, TaskSlotPayload, TaskActions, PartitionPr
 		TaskCancelerWatchDog(
 				Thread executerThread,
 				TaskManagerActions taskManager,
-				long timeoutMillis,
-				Logger log) {
+				long timeoutMillis) {
 
 			checkArgument(timeoutMillis > 0);
 
-			this.log = log;
 			this.executerThread = executerThread;
 			this.taskManager = taskManager;
 			this.timeoutMillis = timeoutMillis;
@@ -1502,13 +1499,11 @@ public class Task implements Runnable, TaskSlotPayload, TaskActions, PartitionPr
 
 				if (executerThread.isAlive()) {
 					String msg = "Task did not exit gracefully within " + (timeoutMillis / 1000) + " + seconds.";
-					log.error(msg);
-					taskManager.notifyFatalError(msg, null);
+					taskManager.notifyFatalError(msg, new FlinkRuntimeException(msg));
 				}
 			}
 			catch (Throwable t) {
-				ExceptionUtils.rethrowIfFatalError(t);
-				log.error("Error in Task Cancellation Watch Dog", t);
+				throw new FlinkRuntimeException("Error in Task Cancellation Watch Dog", t);
 			}
 		}
 	}
