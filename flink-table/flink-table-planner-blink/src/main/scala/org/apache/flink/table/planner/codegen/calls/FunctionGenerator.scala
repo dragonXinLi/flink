@@ -491,6 +491,11 @@ object FunctionGenerator {
     new CurrentTimePointCallGen(false))
 
   addSqlFunction(
+    NOW,
+    Seq(),
+    new CurrentTimePointCallGen(false))
+
+  addSqlFunction(
     CURRENT_TIMESTAMP,
     Seq(),
     new CurrentTimePointCallGen(false))
@@ -544,11 +549,6 @@ object FunctionGenerator {
     TANH,
     Seq(DECIMAL),
     BuiltInMethods.TANH_DEC)
-
-  addSqlFunctionMethod(
-    NOW,
-    Seq(),
-    BuiltInMethods.NOW)
 
   addSqlFunctionMethod(
     UNIX_TIMESTAMP,
@@ -752,6 +752,54 @@ object FunctionGenerator {
     TRUNCATE,
     Seq(FLOAT, INTEGER),
     BuiltInMethods.TRUNCATE_FLOAT)
+
+  addSqlFunctionMethod(IS_JSON_VALUE, Seq(CHAR), BuiltInMethod.IS_JSON_VALUE.method)
+  addSqlFunctionMethod(IS_JSON_VALUE, Seq(VARCHAR), BuiltInMethod.IS_JSON_VALUE.method)
+
+  addSqlFunctionMethod(IS_JSON_OBJECT, Seq(CHAR), BuiltInMethod.IS_JSON_OBJECT.method)
+  addSqlFunctionMethod(IS_JSON_OBJECT, Seq(VARCHAR), BuiltInMethod.IS_JSON_OBJECT.method)
+
+  addSqlFunctionMethod(IS_JSON_ARRAY, Seq(CHAR), BuiltInMethod.IS_JSON_ARRAY.method)
+  addSqlFunctionMethod(IS_JSON_ARRAY, Seq(VARCHAR), BuiltInMethod.IS_JSON_ARRAY.method)
+
+  addSqlFunctionMethod(IS_JSON_SCALAR, Seq(CHAR), BuiltInMethod.IS_JSON_SCALAR.method)
+  addSqlFunctionMethod(IS_JSON_SCALAR, Seq(VARCHAR), BuiltInMethod.IS_JSON_SCALAR.method)
+
+  addSqlFunction(IS_NOT_JSON_VALUE, Seq(CHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_VALUE.method)))
+  addSqlFunction(IS_NOT_JSON_VALUE, Seq(VARCHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_VALUE.method)))
+
+  addSqlFunction(IS_NOT_JSON_OBJECT, Seq(CHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_OBJECT.method)))
+  addSqlFunction(IS_NOT_JSON_OBJECT, Seq(VARCHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_OBJECT.method)))
+
+  addSqlFunction(IS_NOT_JSON_ARRAY, Seq(CHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_ARRAY.method)))
+  addSqlFunction(IS_NOT_JSON_ARRAY, Seq(VARCHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_ARRAY.method)))
+
+  addSqlFunction(IS_NOT_JSON_SCALAR, Seq(CHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_SCALAR.method)))
+  addSqlFunction(IS_NOT_JSON_SCALAR, Seq(VARCHAR),
+    new NotCallGen(
+      new MethodCallGen(
+        BuiltInMethod.IS_JSON_SCALAR.method)))
 
 
   // ----------------------------------------------------------------------------------------------

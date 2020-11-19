@@ -23,7 +23,6 @@ import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.api.common.time.Time;
-import org.apache.flink.client.ClientUtils;
 import org.apache.flink.client.program.MiniClusterClient;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
@@ -285,10 +284,11 @@ public class JobMasterStopWithSavepointIT extends AbstractTestBase {
 						CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION,
 						true,
 						false,
+						false,
 						0),
 				null));
 
-		ClientUtils.submitJob(clusterClient, jobGraph);
+		clusterClient.submitJob(jobGraph).get();
 		assertTrue(invokeLatch.await(60, TimeUnit.SECONDS));
 		waitForJob();
 	}
@@ -316,7 +316,7 @@ public class JobMasterStopWithSavepointIT extends AbstractTestBase {
 
 		private long synchronousSavepointId = Long.MIN_VALUE;
 
-		public ExceptionOnCallbackStreamTask(final Environment environment) {
+		public ExceptionOnCallbackStreamTask(final Environment environment) throws Exception {
 			super(environment);
 		}
 
@@ -351,6 +351,11 @@ public class JobMasterStopWithSavepointIT extends AbstractTestBase {
 
 			return super.notifyCheckpointCompleteAsync(checkpointId);
 		}
+
+		@Override
+		public Future<Void> notifyCheckpointAbortAsync(long checkpointId) {
+			return CompletableFuture.completedFuture(null);
+		}
 	}
 
 	/**
@@ -360,7 +365,7 @@ public class JobMasterStopWithSavepointIT extends AbstractTestBase {
 
 		private final transient OneShotLatch finishLatch;
 
-		public NoOpBlockingStreamTask(final Environment environment) {
+		public NoOpBlockingStreamTask(final Environment environment) throws Exception {
 			super(environment);
 			this.finishLatch = new OneShotLatch();
 		}
@@ -387,7 +392,7 @@ public class JobMasterStopWithSavepointIT extends AbstractTestBase {
 
 		private final transient OneShotLatch finishLatch;
 
-		public CheckpointCountingTask(final Environment environment) {
+		public CheckpointCountingTask(final Environment environment) throws Exception {
 			super(environment);
 			this.finishLatch = new OneShotLatch();
 		}

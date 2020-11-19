@@ -18,18 +18,20 @@
 
 package org.apache.flink.kubernetes.kubeclient.parameters;
 
-import org.apache.flink.client.cli.CliFrontend;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.DeploymentOptionsInternal;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptions;
 import org.apache.flink.kubernetes.utils.Constants;
-import org.apache.flink.runtime.clusterframework.BootstrapTools;
+import org.apache.flink.kubernetes.utils.KubernetesUtils;
 
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.flink.kubernetes.configuration.KubernetesConfigOptions.CONTAINER_IMAGE_PULL_SECRETS;
 import static org.apache.flink.kubernetes.utils.Constants.CONFIG_FILE_LOG4J_NAME;
@@ -53,9 +55,24 @@ public abstract class AbstractKubernetesParameters implements KubernetesParamete
 	}
 
 	@Override
+	public String getConfigDirectory() {
+		final String configDir = flinkConfig.getOptional(DeploymentOptionsInternal.CONF_DIR).orElse(
+			flinkConfig.getString(KubernetesConfigOptions.FLINK_CONF_DIR));
+
+		checkNotNull(configDir);
+		return configDir;
+	}
+
+	@Override
 	public String getClusterId() {
 		final String clusterId = flinkConfig.getString(KubernetesConfigOptions.CLUSTER_ID);
-		checkNotNull(clusterId, "ClusterId must be specified.");
+
+		if (StringUtils.isBlank(clusterId)) {
+			throw new IllegalArgumentException(KubernetesConfigOptions.CLUSTER_ID.key() + " must not be blank.");
+		} else if (clusterId.length() > Constants.MAXIMUM_CHARACTERS_OF_CLUSTER_ID) {
+			throw new IllegalArgumentException(KubernetesConfigOptions.CLUSTER_ID.key() + " must be no more than " +
+				Constants.MAXIMUM_CHARACTERS_OF_CLUSTER_ID + " characters.");
+		}
 
 		return clusterId;
 	}
@@ -77,8 +94,8 @@ public abstract class AbstractKubernetesParameters implements KubernetesParamete
 	}
 
 	@Override
-	public String getImagePullPolicy() {
-		return flinkConfig.getString(KubernetesConfigOptions.CONTAINER_IMAGE_PULL_POLICY);
+	public KubernetesConfigOptions.ImagePullPolicy getImagePullPolicy() {
+		return flinkConfig.get(KubernetesConfigOptions.CONTAINER_IMAGE_PULL_POLICY);
 	}
 
 	@Override
@@ -98,11 +115,7 @@ public abstract class AbstractKubernetesParameters implements KubernetesParamete
 
 	@Override
 	public Map<String, String> getCommonLabels() {
-		Map<String, String> commonLabels = new HashMap<>();
-		commonLabels.put(Constants.LABEL_TYPE_KEY, Constants.LABEL_TYPE_NATIVE_TYPE);
-		commonLabels.put(Constants.LABEL_APP_KEY, getClusterId());
-
-		return commonLabels;
+		return Collections.unmodifiableMap(KubernetesUtils.getCommonLabels(getClusterId()));
 	}
 
 	@Override
@@ -122,24 +135,51 @@ public abstract class AbstractKubernetesParameters implements KubernetesParamete
 
 	@Override
 	public boolean hasLogback() {
-		final String confDir = CliFrontend.getConfigurationDirectoryFromEnv();
+		final String confDir = getConfigDirectory();
 		final File logbackFile = new File(confDir, CONFIG_FILE_LOGBACK_NAME);
 		return logbackFile.exists();
 	}
 
 	@Override
 	public boolean hasLog4j() {
-		final String confDir = CliFrontend.getConfigurationDirectoryFromEnv();
+		final String confDir = getConfigDirectory();
 		final File log4jFile = new File(confDir, CONFIG_FILE_LOG4J_NAME);
 		return log4jFile.exists();
 	}
 
-	/**
-	 * Extract container customized environment variable properties with a given name prefix.
-	 * @param envPrefix the given property name prefix
-	 * @return a Map storing with customized environment variable key/value pairs.
-	 */
-	protected Map<String, String> getPrefixedEnvironments(String envPrefix) {
-		return BootstrapTools.getEnvironmentVariables(envPrefix, flinkConfig);
+	@Override
+	public Optional<String> getExistingHadoopConfigurationConfigMap() {
+		final String existingHadoopConfigMap = flinkConfig.getString(KubernetesConfigOptions.HADOOP_CONF_CONFIG_MAP);
+		if (StringUtils.isBlank(existingHadoopConfigMap)) {
+			return Optional.empty();
+		} else {
+			return Optional.of(existingHadoopConfigMap.trim());
+		}
+	}
+
+	@Override
+	public Optional<String> getLocalHadoopConfigurationDirectory() {
+		final String[] possibleHadoopConfPaths = new String[] {
+			System.getenv(Constants.ENV_HADOOP_CONF_DIR),
+			System.getenv(Constants.ENV_HADOOP_HOME) + "/etc/hadoop", // hadoop 2.2
+			System.getenv(Constants.ENV_HADOOP_HOME) + "/conf"
+		};
+
+		for (String hadoopConfPath: possibleHadoopConfPaths) {
+			if (StringUtils.isNotBlank(hadoopConfPath)) {
+				return Optional.of(hadoopConfPath);
+			}
+		}
+
+		return Optional.empty();
+	}
+
+	public Map<String, String> getSecretNamesToMountPaths() {
+		return flinkConfig.getOptional(KubernetesConfigOptions.KUBERNETES_SECRETS).orElse(Collections.emptyMap());
+	}
+
+	@Override
+	public List<Map<String, String>> getEnvironmentsFromSecrets() {
+		return flinkConfig.getOptional(KubernetesConfigOptions.KUBERNETES_ENV_SECRET_KEY_REF).orElse(Collections.emptyList());
 	}
 }

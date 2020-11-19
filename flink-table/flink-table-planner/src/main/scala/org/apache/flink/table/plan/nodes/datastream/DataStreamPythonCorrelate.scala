@@ -21,8 +21,9 @@ import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.core.JoinRelType
 import org.apache.calcite.rex.{RexCall, RexNode}
+import org.apache.flink.core.memory.ManagedMemoryUseCase
 import org.apache.flink.streaming.api.datastream.DataStream
-import org.apache.flink.table.api.StreamQueryConfig
+import org.apache.flink.table.api.TableException
 import org.apache.flink.table.functions.utils.TableSqlFunction
 import org.apache.flink.table.plan.nodes.CommonPythonCorrelate
 import org.apache.flink.table.plan.nodes.logical.FlinkLogicalTableFunctionScan
@@ -57,6 +58,10 @@ class DataStreamPythonCorrelate(
     joinType)
   with CommonPythonCorrelate {
 
+  if (condition.isDefined) {
+    throw new TableException("Currently Python correlate does not support conditions in left join.")
+  }
+
   override def copy(traitSet: RelTraitSet, inputs: java.util.List[RelNode]): RelNode = {
     new DataStreamPythonCorrelate(
       cluster,
@@ -71,11 +76,9 @@ class DataStreamPythonCorrelate(
       ruleDescription)
   }
 
-  override def translateToPlan(
-      planner: StreamPlanner,
-      queryConfig: StreamQueryConfig): DataStream[CRow] = {
+  override def translateToPlan(planner: StreamPlanner): DataStream[CRow] = {
     val inputDataStream =
-      getInput.asInstanceOf[DataStreamRel].translateToPlan(planner, queryConfig)
+      getInput.asInstanceOf[DataStreamRel].translateToPlan(planner)
 
     val pythonTableFuncRexCall = scan.getCall.asInstanceOf[RexCall]
 
@@ -91,14 +94,14 @@ class DataStreamPythonCorrelate(
     val sqlFunction = pythonTableFuncRexCall.getOperator.asInstanceOf[TableSqlFunction]
 
     val pythonOperator = getPythonTableFunctionOperator(
-      planner.getConfig.getConfiguration,
+      getConfig(planner.getExecutionEnvironment, planner.getConfig),
       pythonOperatorInputRowType,
       pythonOperatorOutputRowType,
       pythonFunctionInfo,
       pythonUdtfInputOffsets,
       joinType)
 
-    inputDataStream
+    val ret = inputDataStream
       .transform(
         correlateOpName(
           inputSchema.relDataType,
@@ -110,5 +113,10 @@ class DataStreamPythonCorrelate(
         pythonOperator)
       // keep parallelism to ensure order of accumulate and retract messages
       .setParallelism(inputDataStream.getParallelism)
+
+    if (isPythonWorkerUsingManagedMemory(planner.getConfig.getConfiguration)) {
+      ret.getTransformation.declareManagedMemoryUseCaseAtSlotScope(ManagedMemoryUseCase.PYTHON)
+    }
+    ret
   }
 }

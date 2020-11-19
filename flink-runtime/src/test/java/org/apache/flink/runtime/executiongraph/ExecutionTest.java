@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
@@ -42,7 +41,6 @@ import org.apache.flink.runtime.shuffle.ProducerDescriptor;
 import org.apache.flink.runtime.shuffle.ShuffleDescriptor;
 import org.apache.flink.runtime.shuffle.ShuffleMaster;
 import org.apache.flink.runtime.taskmanager.LocalTaskManagerLocation;
-import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.TestLogger;
@@ -52,7 +50,6 @@ import org.junit.Test;
 
 import javax.annotation.Nonnull;
 
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
@@ -60,10 +57,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 
-import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.getExecution;
 import static org.apache.flink.runtime.io.network.partition.ResultPartitionType.PIPELINED;
 import static org.apache.flink.runtime.jobgraph.DistributionPattern.POINTWISE;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -101,7 +96,6 @@ public class ExecutionTest extends TestLogger {
 		slotProvider.addSlot(jobVertexId, 0, slotFuture);
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -159,7 +153,6 @@ public class ExecutionTest extends TestLogger {
 		slotProvider.addSlot(jobVertexId, 0, CompletableFuture.completedFuture(slot));
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -205,7 +198,6 @@ public class ExecutionTest extends TestLogger {
 		slotProvider.addSlot(jobVertexId, 0, CompletableFuture.completedFuture(slot));
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -253,7 +245,6 @@ public class ExecutionTest extends TestLogger {
 		slotProvider.addSlot(jobVertexId, 0, slotFuture);
 
 		final ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -288,61 +279,6 @@ public class ExecutionTest extends TestLogger {
 	}
 
 	/**
-	 * Tests that all preferred locations are calculated.
-	 */
-	@Test
-	public void testAllPreferredLocationCalculation() throws Exception {
-		final TaskManagerLocation taskManagerLocation1 = new LocalTaskManagerLocation();
-		final TaskManagerLocation taskManagerLocation2 = new LocalTaskManagerLocation();
-		final TaskManagerLocation taskManagerLocation3 = new LocalTaskManagerLocation();
-
-		final CompletableFuture<TaskManagerLocation> locationFuture1 = CompletableFuture.completedFuture(taskManagerLocation1);
-		final CompletableFuture<TaskManagerLocation> locationFuture2 = new CompletableFuture<>();
-		final CompletableFuture<TaskManagerLocation> locationFuture3 = new CompletableFuture<>();
-
-		final Execution execution = getExecution(Arrays.asList(locationFuture1, locationFuture2, locationFuture3));
-
-		CompletableFuture<Collection<TaskManagerLocation>> preferredLocationsFuture = execution.calculatePreferredLocations(LocationPreferenceConstraint.ALL);
-
-		assertFalse(preferredLocationsFuture.isDone());
-
-		locationFuture3.complete(taskManagerLocation3);
-
-		assertFalse(preferredLocationsFuture.isDone());
-
-		locationFuture2.complete(taskManagerLocation2);
-
-		assertTrue(preferredLocationsFuture.isDone());
-
-		final Collection<TaskManagerLocation> preferredLocations = preferredLocationsFuture.get();
-
-		assertThat(preferredLocations, containsInAnyOrder(taskManagerLocation1, taskManagerLocation2, taskManagerLocation3));
-	}
-
-	/**
-	 * Tests that any preferred locations are calculated.
-	 */
-	@Test
-	public void testAnyPreferredLocationCalculation() throws Exception {
-		final TaskManagerLocation taskManagerLocation1 = new LocalTaskManagerLocation();
-		final TaskManagerLocation taskManagerLocation3 = new LocalTaskManagerLocation();
-
-		final CompletableFuture<TaskManagerLocation> locationFuture1 = CompletableFuture.completedFuture(taskManagerLocation1);
-		final CompletableFuture<TaskManagerLocation> locationFuture2 = new CompletableFuture<>();
-		final CompletableFuture<TaskManagerLocation> locationFuture3 = CompletableFuture.completedFuture(taskManagerLocation3);
-
-		final Execution execution = getExecution(Arrays.asList(locationFuture1, locationFuture2, locationFuture3));
-
-		CompletableFuture<Collection<TaskManagerLocation>> preferredLocationsFuture = execution.calculatePreferredLocations(LocationPreferenceConstraint.ANY);
-
-		assertTrue(preferredLocationsFuture.isDone());
-
-		final Collection<TaskManagerLocation> preferredLocations = preferredLocationsFuture.get();
-
-		assertThat(preferredLocations, containsInAnyOrder(taskManagerLocation1, taskManagerLocation3));
-	}
-
-	/**
 	 * Checks that the {@link Execution} termination future is only completed after the
 	 * assigned slot has been released.
 	 *
@@ -361,7 +297,6 @@ public class ExecutionTest extends TestLogger {
 			slotOwner);
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -410,7 +345,6 @@ public class ExecutionTest extends TestLogger {
 			slotOwner);
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -459,7 +393,6 @@ public class ExecutionTest extends TestLogger {
 			(LogicalSlot logicalSlot) -> returnedSlotFuture.complete(logicalSlot.getSlotRequestId()));
 
 		ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);
@@ -526,7 +459,6 @@ public class ExecutionTest extends TestLogger {
 			return slotFuture;
 		});
 		final ExecutionGraph executionGraph = ExecutionGraphTestUtils.createSimpleTestGraph(
-			new JobID(),
 			slotProvider,
 			new NoRestartStrategy(),
 			jobVertex);

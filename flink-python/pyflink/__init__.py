@@ -24,22 +24,6 @@ if sys.version_info < (3, 5):
         str(sys.version_info) + '].')
 
 
-def since(version):
-    """
-    A decorator that annotates a function to append the version the function was added.
-    """
-    import re
-    indent_p = re.compile(r'\n( +)')
-
-    def deco(f):
-        original_doc = f.__doc__ or ""
-        indents = indent_p.findall(original_doc)
-        indent = ' ' * (min(len(indent) for indent in indents) if indents else 0)
-        f.__doc__ = original_doc.rstrip() + "\n\n%s.. versionadded:: %s" % (indent, version)
-        return f
-    return deco
-
-
 def keyword(func):
     """
     A decorator that forces keyword arguments usage and store actual
@@ -50,3 +34,17 @@ def keyword(func):
         self._input_kwargs = kwargs
         return func(self, **kwargs)
     return wrapper
+
+
+def add_version_doc(f, version):
+    """
+    Annotates a function to append the version the function was added.
+    """
+
+    import re
+    indent_p = re.compile(r'\n( *)[^\n ]')
+
+    original_doc = f.__doc__ or ""
+    indents = indent_p.findall(original_doc)
+    indent = ' ' * (min(len(indent) for indent in indents) if indents else 0)
+    f.__doc__ = original_doc.rstrip() + "\n\n%s.. versionadded:: %s" % (indent, version)

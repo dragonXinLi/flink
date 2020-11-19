@@ -20,7 +20,6 @@ package org.apache.flink.runtime.jobmaster;
 
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Time;
-import org.apache.flink.client.ClientUtils;
 import org.apache.flink.client.program.MiniClusterClient;
 import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
@@ -111,10 +110,11 @@ public class JobMasterTriggerSavepointITCase extends AbstractTestBase {
 				CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION,
 				true,
 				false,
+				false,
 				0),
 			null));
 
-		ClientUtils.submitJob(clusterClient, jobGraph);
+		clusterClient.submitJob(jobGraph).get();
 		assertTrue(invokeLatch.await(60, TimeUnit.SECONDS));
 		waitForJob();
 	}
@@ -234,7 +234,7 @@ public class JobMasterTriggerSavepointITCase extends AbstractTestBase {
 			final TaskStateSnapshot checkpointStateHandles = new TaskStateSnapshot();
 			checkpointStateHandles.putSubtaskStateByOperatorID(
 				OperatorID.fromJobVertexID(getEnvironment().getJobVertexId()),
-				new OperatorSubtaskState());
+				OperatorSubtaskState.builder().build());
 
 			getEnvironment().acknowledgeCheckpoint(
 				checkpointMetaData.getCheckpointId(),
@@ -248,6 +248,11 @@ public class JobMasterTriggerSavepointITCase extends AbstractTestBase {
 
 		@Override
 		public Future<Void> notifyCheckpointCompleteAsync(final long checkpointId) {
+			return CompletableFuture.completedFuture(null);
+		}
+
+		@Override
+		public Future<Void> notifyCheckpointAbortAsync(long checkpointId) {
 			return CompletableFuture.completedFuture(null);
 		}
 	}

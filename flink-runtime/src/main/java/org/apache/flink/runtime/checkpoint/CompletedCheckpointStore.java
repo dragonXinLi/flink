@@ -18,6 +18,7 @@
 
 package org.apache.flink.runtime.checkpoint;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobStatus;
 
 import org.slf4j.Logger;
@@ -47,7 +48,7 @@ public interface CompletedCheckpointStore {
 	 * <p>Only a bounded number of checkpoints is kept. When exceeding the maximum number of
 	 * retained checkpoints, the oldest one will be discarded.
 	 */
-	void addCheckpoint(CompletedCheckpoint checkpoint) throws Exception;
+	void addCheckpoint(CompletedCheckpoint checkpoint, CheckpointsCleaner checkpointsCleaner, Runnable postCleanup) throws Exception;
 
 	/**
 	 * Returns the latest {@link CompletedCheckpoint} instance or <code>null</code> if none was
@@ -84,7 +85,7 @@ public interface CompletedCheckpointStore {
 	 *
 	 * @param jobStatus Job state on shut down
 	 */
-	void shutdown(JobStatus jobStatus) throws Exception;
+	void shutdown(JobStatus jobStatus, CheckpointsCleaner checkpointsCleaner, Runnable postCleanup) throws Exception;
 
 	/**
 	 * Returns all {@link CompletedCheckpoint} instances.
@@ -112,4 +113,14 @@ public interface CompletedCheckpointStore {
 	 *         if the store stores the metadata itself.
 	 */
 	boolean requiresExternalizedCheckpoints();
+
+	@VisibleForTesting
+	static CompletedCheckpointStore storeFor(Runnable postCleanupAction, CompletedCheckpoint... checkpoints) throws Exception {
+		StandaloneCompletedCheckpointStore store = new StandaloneCompletedCheckpointStore(checkpoints.length);
+		CheckpointsCleaner checkpointsCleaner = new CheckpointsCleaner();
+		for (final CompletedCheckpoint checkpoint : checkpoints) {
+			store.addCheckpoint(checkpoint, checkpointsCleaner, postCleanupAction);
+		}
+		return store;
+	}
 }

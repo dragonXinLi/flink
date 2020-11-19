@@ -22,6 +22,8 @@ from pyflink.ml.api.param import WithParams, ParamInfo, TypeConverters
 class HasSelectedCols(WithParams):
     """
     An interface for classes with a parameter specifying the name of multiple table columns.
+
+    .. versionadded:: 1.11.0
     """
 
     selected_cols = ParamInfo(
@@ -40,6 +42,8 @@ class HasSelectedCols(WithParams):
 class HasOutputCol(WithParams):
     """
     An interface for classes with a parameter specifying the name of the output column.
+
+    .. versionadded:: 1.11.0
     """
 
     output_col = ParamInfo(
@@ -53,3 +57,22 @@ class HasOutputCol(WithParams):
 
     def get_output_col(self) -> str:
         return super().get(self.output_col)
+
+
+class HasPredictionCol(WithParams):
+    """
+    An interface for classes with a parameter specifying the column name of the prediction.
+
+    .. versionadded:: 1.11.0
+    """
+    prediction_col = ParamInfo(
+        "predictionCol",
+        "Column name of prediction.",
+        is_optional=False,
+        type_converter=TypeConverters.to_string)
+
+    def set_prediction_col(self, v: str) -> 'HasPredictionCol':
+        return super().set(self.prediction_col, v)
+
+    def get_prediction_col(self) -> str:
+        return super().get(self.prediction_col)

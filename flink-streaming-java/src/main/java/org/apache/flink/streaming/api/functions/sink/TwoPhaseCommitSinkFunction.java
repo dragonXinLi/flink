@@ -20,6 +20,7 @@ package org.apache.flink.streaming.api.functions.sink;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
@@ -33,7 +34,6 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSchemaCompatibility;
 import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
-import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -305,6 +305,10 @@ public abstract class TwoPhaseCommitSinkFunction<IN, TXN, CONTEXT>
 	}
 
 	@Override
+	public void notifyCheckpointAborted(long checkpointId) {
+	}
+
+	@Override
 	public void snapshotState(FunctionSnapshotContext context) throws Exception {
 		// this is like the pre-commit of a 2-phase-commit transaction
 		// we are ready to commit and remember the transaction
@@ -484,7 +488,7 @@ public abstract class TwoPhaseCommitSinkFunction<IN, TXN, CONTEXT>
 		return String.format(
 			"%s %s/%s",
 			this.getClass().getSimpleName(),
-			getRuntimeContext().getIndexOfThisSubtask(),
+			getRuntimeContext().getIndexOfThisSubtask() + 1,
 			getRuntimeContext().getNumberOfParallelSubtasks());
 	}
 

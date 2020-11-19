@@ -16,7 +16,7 @@
 # limitations under the License.
 ################################################################################
 import array
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, List
 
 V = TypeVar('V')
 
@@ -164,17 +164,16 @@ class Params(Generic[V]):
         import jsonpickle
         return str(jsonpickle.encode(self._param_map, keys=True))
 
-    def load_json(self, json: str) -> 'Params':
+    def load_json(self, json: str) -> None:
         """
         Restores the parameters from the given json. The parameters should be exactly
         the same with the one who was serialized to the input json after the restoration.
 
         :param json: the json String to restore from.
-        :return: the Params.
+        :return: None.
         """
         import jsonpickle
         self._param_map.update(jsonpickle.decode(json, keys=True))
-        return self
 
     @staticmethod
     def from_json(json) -> 'Params':
@@ -184,7 +183,9 @@ class Params(Generic[V]):
         :param json: the json string to load.
         :return: the `Params` loaded from the json string.
         """
-        return Params().load_json(json)
+        ret = Params()
+        ret.load_json(json)
+        return ret
 
     def merge(self, other_params: 'Params') -> 'Params':
         """
@@ -267,7 +268,7 @@ class TypeConverters(object):
         return value
 
     @staticmethod
-    def to_list(value):
+    def to_list(value) -> List:
         """
         Convert a value to a list, if possible.
         """
@@ -279,7 +280,7 @@ class TypeConverters(object):
             raise TypeError("Could not convert %s to list" % value)
 
     @staticmethod
-    def to_list_float(value):
+    def to_list_float(value) -> List[float]:
         """
         Convert a value to list of floats, if possible.
         """
@@ -289,7 +290,7 @@ class TypeConverters(object):
         raise TypeError("Could not convert %s to list of floats" % value)
 
     @staticmethod
-    def to_list_int(value):
+    def to_list_int(value) -> List[int]:
         """
         Convert a value to list of ints, if possible.
         """
@@ -299,7 +300,7 @@ class TypeConverters(object):
         raise TypeError("Could not convert %s to list of ints" % value)
 
     @staticmethod
-    def to_list_string(value):
+    def to_list_string(value) -> List[str]:
         """
         Convert a value to list of strings, if possible.
         """

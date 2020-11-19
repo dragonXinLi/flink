@@ -20,12 +20,12 @@ package org.apache.flink.test.checkpointing;
 
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.io.FilePathFilter;
+import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.java.io.TextInputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.execution.SuppressRestartsException;
-import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.streaming.api.checkpoint.ListCheckpointed;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -245,6 +245,10 @@ public class ContinuousFileProcessingCheckpointITCase extends StreamFaultToleran
 		@Override
 		public void notifyCheckpointComplete(long checkpointId) throws Exception {
 			this.successfulCheckpoints++;
+		}
+
+		@Override
+		public void notifyCheckpointAborted(long checkpointId) {
 		}
 
 		private int getFileIdx(String line) {

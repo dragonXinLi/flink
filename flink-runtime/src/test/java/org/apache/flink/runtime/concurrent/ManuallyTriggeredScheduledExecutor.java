@@ -32,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -43,8 +42,6 @@ import java.util.stream.Collectors;
  */
 public class ManuallyTriggeredScheduledExecutor implements ScheduledExecutor {
 
-	private final Executor executorDelegate;
-
 	private final ArrayDeque<Runnable> queuedRunnables = new ArrayDeque<>();
 
 	private final ConcurrentLinkedQueue<ScheduledTask<?>> nonPeriodicScheduledTasks =
@@ -52,10 +49,6 @@ public class ManuallyTriggeredScheduledExecutor implements ScheduledExecutor {
 
 	private final ConcurrentLinkedQueue<ScheduledTask<?>> periodicScheduledTasks =
 		new ConcurrentLinkedQueue<>();
-
-	public ManuallyTriggeredScheduledExecutor() {
-		this.executorDelegate = Runnable::run;
-	}
 
 	@Override
 	public void execute(@Nonnull Runnable command) {
@@ -82,7 +75,7 @@ public class ManuallyTriggeredScheduledExecutor implements ScheduledExecutor {
 			next = queuedRunnables.removeFirst();
 		}
 
-		CompletableFuture.runAsync(next, executorDelegate).join();
+		next.run();
 	}
 
 	/**
@@ -153,6 +146,20 @@ public class ManuallyTriggeredScheduledExecutor implements ScheduledExecutor {
 		final ScheduledTask<?> poll = nonPeriodicScheduledTasks.remove();
 		if (poll != null) {
 			poll.execute();
+		}
+	}
+
+	/**
+	 * Triggers all non-periodically scheduled tasks. In contrast to {@link #triggerNonPeriodicScheduledTasks()},
+	 * if such a task schedules another non-periodically schedule task, then this new task will also be triggered.
+	 */
+	public void triggerNonPeriodicScheduledTasksWithRecursion() {
+		while (!nonPeriodicScheduledTasks.isEmpty()) {
+			final ScheduledTask<?> scheduledTask = nonPeriodicScheduledTasks.poll();
+
+			if (!scheduledTask.isCancelled()) {
+				scheduledTask.execute();
+			}
 		}
 	}
 

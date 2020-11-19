@@ -18,6 +18,8 @@
 
 package org.apache.flink.runtime.operators.coordination;
 
+import javax.annotation.Nullable;
+
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -42,17 +44,17 @@ public final class MockOperatorCoordinator implements OperatorCoordinator {
 	}
 
 	@Override
-	public void subtaskFailed(int subtask) {
+	public void subtaskFailed(int subtask, @Nullable Throwable reason) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public CompletableFuture<byte[]> checkpointCoordinator(long checkpointId) {
+	public void checkpointCoordinator(long checkpointId, CompletableFuture<byte[]> result) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void checkpointComplete(long checkpointId) {
+	public void notifyCheckpointComplete(long checkpointId) {
 		throw new UnsupportedOperationException();
 	}
 

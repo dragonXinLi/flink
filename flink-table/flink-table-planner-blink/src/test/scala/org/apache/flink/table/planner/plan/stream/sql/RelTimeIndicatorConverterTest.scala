@@ -19,14 +19,17 @@
 package org.apache.flink.table.planner.plan.stream.sql
 
 import org.apache.flink.api.scala._
-import org.apache.flink.table.api.scala._
+import org.apache.flink.table.api._
+import org.apache.flink.table.api.internal.TableEnvironmentInternal
+import org.apache.flink.table.data.TimestampData
 import org.apache.flink.table.functions.TableFunction
 import org.apache.flink.table.planner.plan.stream.sql.RelTimeIndicatorConverterTest.TableFunc
 import org.apache.flink.table.planner.utils.TableTestBase
-import org.junit.Test
-import java.sql.Timestamp
+import org.apache.flink.table.types.logical.BigIntType
 
-import org.apache.flink.table.dataformat.SqlTimestamp
+import org.junit.Test
+
+import java.sql.Timestamp
 
 /**
   * Tests for [[org.apache.flink.table.planner.calcite.RelTimeIndicatorConverter]].
@@ -162,6 +165,37 @@ class RelTimeIndicatorConverterTest extends TableTestBase {
     util.verifyPlan(result)
   }
 
+  @Test
+  def testKeepProcessTimeAttrAfterSubGraphOptimize(): Unit = {
+    val stmtSet = util.tableEnv.createStatementSet()
+    val sql =
+      """
+        |SELECT
+        |    long,
+        |    SUM(`int`)
+        |FROM MyTable2
+        |    GROUP BY TUMBLE(proctime, INTERVAL '10' SECOND), long
+      """.stripMargin
+
+    val table = util.tableEnv.sqlQuery(sql)
+
+    val appendSink1 = util.createAppendTableSink(
+      Array("long", "sum"),
+      Array(new BigIntType(), new BigIntType()))
+    util.tableEnv.asInstanceOf[TableEnvironmentInternal].registerTableSinkInternal(
+      "appendSink1", appendSink1)
+    stmtSet.addInsert("appendSink1", table)
+
+    val appendSink2 = util.createAppendTableSink(
+      Array("long", "sum"),
+      Array(new BigIntType(), new BigIntType()))
+    util.tableEnv.asInstanceOf[TableEnvironmentInternal].registerTableSinkInternal(
+      "appendSink2", appendSink2)
+    stmtSet.addInsert("appendSink2", table)
+
+    util.verifyPlan(stmtSet)
+  }
+
   // TODO add temporal table join case
 }
 
@@ -170,7 +204,7 @@ object RelTimeIndicatorConverterTest {
   class TableFunc extends TableFunction[String] {
     val t = new Timestamp(0L)
 
-    def eval(time1: SqlTimestamp, time2: Timestamp, string: String): Unit = {
+    def eval(time1: TimestampData, time2: Timestamp, string: String): Unit = {
       collect(time1.toString + time2.after(t) + string)
     }
   }

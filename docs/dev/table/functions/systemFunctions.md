@@ -23,7 +23,7 @@ under the License.
 -->
 
 Flink Table API & SQL provides users with a set of built-in functions for data transformations. This page gives a brief overview of them.
-If a function that you need is not supported yet, you can implement a <a href="udfs.html">user-defined function</a>.
+If a function that you need is not supported yet, you can implement a [user-defined function]({% link dev/table/functions/udfs.md %}).
 If you think that the function is general enough, please <a href="https://issues.apache.org/jira/secure/CreateIssue!default.jspa">open a Jira issue</a> for it with a detailed description.
 
 * This will be replaced by the TOC
@@ -1065,6 +1065,17 @@ numeric1 / numeric2
     <tr>
       <td>
 {% highlight text %}
+numeric1 % numeric2
+{% endhighlight %}
+      </td>
+      <td>
+        <p>Returns the remainder (modulus) of <i>numeric1</i> divided by <i>numeric2</i>. The result is negative only if <i>numeric1</i> is negative.</p>
+      </td>
+    </tr>
+
+    <tr>
+      <td>
+{% highlight text %}
 POWER(numeric1, numeric2)
 {% endhighlight %}
       </td>
@@ -1427,6 +1438,7 @@ UUID()
      </td>
     <td>
       <p>Returns an UUID (Universally Unique Identifier) string (e.g., "3d3c68f7-f608-473f-b60c-b0c44ad4cc4e") according to RFC 4122 type 4 (pseudo randomly generated) UUID. The UUID is generated using a cryptographically strong pseudo random number generator.</p>
+      <p><b>Note:</b> This function is not deterministic which means the value would be recalculated for each record.</p>
     </td>
    </tr>
     
@@ -3749,7 +3761,7 @@ FROM_UNIXTIME(numeric[, string])
       </td>
       <td>
         <p>Returns a representation of the <i>numeric</i> argument as a value in <i>string</i> format (default is 'YYYY-MM-DD hh:mm:ss'). <i>numeric</i> is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC, such as produced by the UNIX_TIMESTAMP() function. The return value is expressed in the session time zone (specified in TableConfig).</p>
-        <p>E.g., <code>FROM_UNIXTIME(44)</code> returns '1970-01-01 09:00:44' if in UTC time zone, but returns '1970-01-01 09:00:44' if in 'Asia/Tokyo' time zone.</p>
+        <p>E.g., <code>FROM_UNIXTIME(44)</code> returns '1970-01-01 00:00:44' if in UTC time zone, but returns '1970-01-01 09:00:44' if in 'Asia/Tokyo' time zone.</p>
         <p>Only supported in blink planner.</p>
       </td>
     </tr>
@@ -3761,7 +3773,8 @@ UNIX_TIMESTAMP()
 {% endhighlight %}
       </td>
       <td>
-        <p>Gets current Unix timestamp in seconds. This function is not deterministic.</p>
+        <p>Gets current Unix timestamp in seconds.</p>
+        <p><b>Note:</b> This function is not deterministic which means the value would be recalculated for each record.</p>
         <p>Only supported in blink planner.</p>
       </td>
     </tr>
@@ -3809,7 +3822,8 @@ NOW()
 {% endhighlight %}
       </td>
       <td>
-        <p>Returns the current SQL timestamp in the UTC time zone. This function is not deterministic.</p>
+        <p>Returns the current SQL timestamp in the UTC time zone.</p>
+        <p><b>Note:</b> This function is not deterministic which means the value would be recalculated for each record.</p>
         <p>Only supported in blink planner.</p>
       </td>
     </tr>

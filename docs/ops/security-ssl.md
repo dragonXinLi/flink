@@ -38,7 +38,7 @@ start and control running Flink jobs/applications, including the communication o
 For more flexibility, security for internal and external connectivity can be enabled and configured separately.
 
 <div style="text-align: center">
-  <img src="{{ site.baseurl }}/fig/ssl_internal_external.svg" alt="Internal and External Connectivity" style="width:75%; padding-top:10px; padding-bottom:10px;" />
+  <img src="{% link /fig/ssl_internal_external.svg %}" alt="Internal and External Connectivity" style="width:75%; padding-top:10px; padding-bottom:10px;" />
 </div>
 
 ### Internal Connectivity
@@ -76,7 +76,7 @@ This makes container-based setups easier.*
 All external connectivity is exposed via an HTTP/REST endpoint, used for example by the web UI and the CLI:
 
   - Communication with the *Dispatcher* to submit jobs (session clusters)
-  - Communication with the *JobManager* to inspect and modify a running job/application
+  - Communication with the *JobMaster* to inspect and modify a running job/application
 
 The REST endpoints can be configured to require SSL connections. The server will, however, accept connections from any client by default, meaning the REST endpoint does not authenticate the client.
 
@@ -216,7 +216,7 @@ However, as mentioned above, the REST endpoint does not authenticate clients and
 **REST Endpoint (simple self signed certificate)**
 
 This example shows how to create a simple keystore / truststore pair. The truststore does not contain the primary key and can
-be shared with other applications. In this example, *myhost.company.org / ip:10.0.2.15* is the node (or service) for the Flink master.
+be shared with other applications. In this example, *myhost.company.org / ip:10.0.2.15* is the node (or service) for the JobManager.
 
 {% highlight bash %}
 keytool -genkeypair -alias flink.rest -keystore rest.keystore -dname "CN=myhost.company.org" -ext "SAN=dns:myhost.company.org,ip:10.0.2.15" -storepass rest_keystore_password -keyalg RSA -keysize 4096 -storetype PKCS12
@@ -248,7 +248,7 @@ keytool -importcert -keystore ca.truststore -alias ca -storepass ca_truststore_p
 {% endhighlight %}
 
 Now create a keystore for the REST endpoint with a certificate signed by the above CA.
-Let *flink.company.org / ip:10.0.2.15* be the hostname of the Flink master (JobManager).
+Let *flink.company.org / ip:10.0.2.15* be the hostname of the JobManager.
 
 {% highlight bash %}
 keytool -genkeypair -alias flink.rest -keystore rest.signed.keystore -dname "CN=flink.company.org" -ext "SAN=dns:flink.company.org" -storepass rest_keystore_password -keyalg RSA -keysize 4096 -storetype PKCS12
@@ -300,7 +300,7 @@ For YARN and Mesos, you can use the tools of Yarn and Mesos to help:
   - Configuring security for internal communication is exactly the same as in the example above.
 
   - To secure the REST endpoint, you need to issue the REST endpoint's certificate such that it is valid for all hosts
-    that the Flink master may get deployed to. This can be done with a wild card DNS name, or by adding multiple DNS names.
+    that the JobManager may get deployed to. This can be done with a wild card DNS name, or by adding multiple DNS names.
 
   - The easiest way to deploy keystores and truststore is by YARN client's *ship files* option (`-yt`).
     Copy the keystore and truststore files into a local directory (say `deploy-keys/`) and start the YARN session as

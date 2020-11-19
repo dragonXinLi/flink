@@ -20,31 +20,38 @@ package org.apache.flink.runtime.scheduler.adapter;
 
 import org.apache.flink.runtime.executiongraph.ExecutionEdge;
 import org.apache.flink.runtime.executiongraph.ExecutionGraph;
-import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
 import org.apache.flink.runtime.executiongraph.IntermediateResultPartition;
-import org.apache.flink.runtime.executiongraph.failover.flip1.FailoverTopology;
+import org.apache.flink.runtime.executiongraph.failover.flip1.PipelinedRegionComputeUtil;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
+import org.apache.flink.runtime.jobmanager.scheduler.CoLocationConstraint;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ResultPartitionState;
+import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingTopology;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.apache.flink.util.Preconditions.checkState;
 
 /**
- * Adapter of {@link ExecutionGraph} to {@link SchedulingTopology} and {@link FailoverTopology}.
+ * Adapter of {@link ExecutionGraph} to {@link SchedulingTopology}.
  */
-public class DefaultExecutionTopology implements SchedulingTopology<DefaultExecutionVertex, DefaultResultPartition>,
-		FailoverTopology<DefaultExecutionVertex, DefaultResultPartition> {
+public class DefaultExecutionTopology implements SchedulingTopology {
 
-	private final boolean containsCoLocationConstraints;
+	private static final Logger LOG = LoggerFactory.getLogger(DefaultExecutionTopology.class);
 
 	private final Map<ExecutionVertexID, DefaultExecutionVertex> executionVerticesById;
 
@@ -52,12 +59,14 @@ public class DefaultExecutionTopology implements SchedulingTopology<DefaultExecu
 
 	private final Map<IntermediateResultPartitionID, DefaultResultPartition> resultPartitionsById;
 
-	public DefaultExecutionTopology(ExecutionGraph graph) {
-		checkNotNull(graph, "execution graph can not be null");
+	@Nullable
+	private Map<ExecutionVertexID, DefaultSchedulingPipelinedRegion> pipelinedRegionsByVertex;
 
-		this.containsCoLocationConstraints = graph.getAllVertices().values().stream()
-			.map(ExecutionJobVertex::getCoLocationGroup)
-			.anyMatch(Objects::nonNull);
+	@Nullable
+	private List<DefaultSchedulingPipelinedRegion> pipelinedRegions;
+
+	private DefaultExecutionTopology(ExecutionGraph graph) {
+		checkNotNull(graph, "execution graph can not be null");
 
 		this.executionVerticesById = new HashMap<>();
 		this.executionVerticesList = new ArrayList<>(graph.getTotalNumberOfVertices());
@@ -79,24 +88,56 @@ public class DefaultExecutionTopology implements SchedulingTopology<DefaultExecu
 		connectVerticesToConsumedPartitions(executionVertexMap, tmpResultPartitionsById);
 	}
 
+	private void setPipelinedRegions(List<DefaultSchedulingPipelinedRegion> pipelinedRegions) {
+		this.pipelinedRegions = checkNotNull(pipelinedRegions);
+
+		this.pipelinedRegionsByVertex = new HashMap<>();
+		for (DefaultSchedulingPipelinedRegion pipelinedRegion : pipelinedRegions) {
+			for (SchedulingExecutionVertex executionVertex : pipelinedRegion.getVertices()) {
+				pipelinedRegionsByVertex.put(executionVertex.getId(), pipelinedRegion);
+			}
+		}
+	}
+
 	@Override
 	public Iterable<DefaultExecutionVertex> getVertices() {
 		return executionVerticesList;
 	}
 
 	@Override
-	public boolean containsCoLocationConstraints() {
-		return containsCoLocationConstraints;
+	public DefaultExecutionVertex getVertex(final ExecutionVertexID executionVertexId) {
+		final DefaultExecutionVertex executionVertex = executionVerticesById.get(executionVertexId);
+		if (executionVertex == null) {
+			throw new IllegalArgumentException("can not find vertex: " + executionVertexId);
+		}
+		return executionVertex;
 	}
 
 	@Override
-	public Optional<DefaultExecutionVertex> getVertex(ExecutionVertexID executionVertexId) {
-		return Optional.ofNullable(executionVerticesById.get(executionVertexId));
+	public DefaultResultPartition getResultPartition(final IntermediateResultPartitionID intermediateResultPartitionId) {
+		final DefaultResultPartition resultPartition = resultPartitionsById.get(intermediateResultPartitionId);
+		if (resultPartition == null) {
+			throw new IllegalArgumentException("can not find partition: " + intermediateResultPartitionId);
+		}
+		return resultPartition;
 	}
 
 	@Override
-	public Optional<DefaultResultPartition> getResultPartition(IntermediateResultPartitionID intermediateResultPartitionId) {
-		return Optional.ofNullable(resultPartitionsById.get(intermediateResultPartitionId));
+	public Iterable<DefaultSchedulingPipelinedRegion> getAllPipelinedRegions() {
+		checkNotNull(pipelinedRegions);
+
+		return Collections.unmodifiableCollection(pipelinedRegions);
+	}
+
+	@Override
+	public DefaultSchedulingPipelinedRegion getPipelinedRegionOfVertex(final ExecutionVertexID vertexId) {
+		checkNotNull(pipelinedRegionsByVertex);
+
+		final DefaultSchedulingPipelinedRegion pipelinedRegion = pipelinedRegionsByVertex.get(vertexId);
+		if (pipelinedRegion == null) {
+			throw new IllegalArgumentException("Unknown execution vertex " + vertexId);
+		}
+		return pipelinedRegion;
 	}
 
 	private static List<DefaultResultPartition> generateProducedSchedulingResultPartition(
@@ -146,5 +187,69 @@ public class DefaultExecutionTopology implements SchedulingTopology<DefaultExecu
 				}
 			}
 		}
+	}
+
+	public static DefaultExecutionTopology fromExecutionGraph(ExecutionGraph executionGraph) {
+		final DefaultExecutionTopology topology = new DefaultExecutionTopology(executionGraph);
+
+		final List<DefaultSchedulingPipelinedRegion> pipelinedRegions = generatePipelinedRegions(topology);
+		topology.setPipelinedRegions(pipelinedRegions);
+		ensureCoLocatedVerticesInSameRegion(pipelinedRegions, executionGraph);
+
+		return topology;
+	}
+
+	private static List<DefaultSchedulingPipelinedRegion> generatePipelinedRegions(DefaultExecutionTopology topology) {
+		final long buildRegionsStartTime = System.nanoTime();
+
+		final Set<Set<SchedulingExecutionVertex>> rawPipelinedRegions = PipelinedRegionComputeUtil
+			.computePipelinedRegions(topology);
+
+		final List<DefaultSchedulingPipelinedRegion> pipelinedRegions = new ArrayList<>();
+		for (Set<? extends SchedulingExecutionVertex> rawPipelinedRegion : rawPipelinedRegions) {
+			//noinspection unchecked
+			final DefaultSchedulingPipelinedRegion pipelinedRegion = new DefaultSchedulingPipelinedRegion(
+				(Set<DefaultExecutionVertex>) rawPipelinedRegion);
+			pipelinedRegions.add(pipelinedRegion);
+		}
+
+		final long buildRegionsDuration = (System.nanoTime() - buildRegionsStartTime) / 1_000_000;
+		LOG.info("Built {} pipelined regions in {} ms", pipelinedRegions.size(), buildRegionsDuration);
+
+		return pipelinedRegions;
+	}
+
+	/**
+	 * Co-location constraints are only used for iteration head and tail.
+	 * A paired head and tail needs to be in the same pipelined region so
+	 * that they can be restarted together.
+	 */
+	private static void ensureCoLocatedVerticesInSameRegion(
+			List<DefaultSchedulingPipelinedRegion> pipelinedRegions,
+			ExecutionGraph executionGraph) {
+
+		final Map<CoLocationConstraint, DefaultSchedulingPipelinedRegion> constraintToRegion = new IdentityHashMap<>();
+		for (DefaultSchedulingPipelinedRegion region : pipelinedRegions) {
+			for (DefaultExecutionVertex vertex : region.getVertices()) {
+				final CoLocationConstraint constraint = getCoLocationConstraint(vertex.getId(), executionGraph);
+				if (constraint != null) {
+					final DefaultSchedulingPipelinedRegion regionOfConstraint = constraintToRegion.get(constraint);
+					checkState(
+						regionOfConstraint == null || regionOfConstraint == region,
+						"co-located tasks must be in the same pipelined region");
+					constraintToRegion.putIfAbsent(constraint, region);
+				}
+			}
+		}
+	}
+
+	private static CoLocationConstraint getCoLocationConstraint(
+			ExecutionVertexID executionVertexId,
+			ExecutionGraph executionGraph) {
+
+		return executionGraph
+			.getJobVertex(executionVertexId.getJobVertexId())
+			.getTaskVertices()[executionVertexId.getSubtaskIndex()]
+			.getLocationConstraint();
 	}
 }

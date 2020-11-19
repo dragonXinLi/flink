@@ -30,7 +30,8 @@ Get a local Flink cluster up and running in a few simple steps.
 
 ## Setup: Download and Start Flink
 
-Flink runs on __Linux, Mac OS X, and Windows__.
+Flink runs on __Linux and Mac OS X__.
+<span class="label label-info">Note:</span> Windows users can run Flink in Cygwin or WSL.
 To be able to run Flink, the only requirement is to have a working __Java 8 or 11__ installation.
 
 You can check the correct installation of Java by issuing the following command:
@@ -97,30 +98,13 @@ $ cd build-target
 
 ### Start a Local Flink Cluster
 
-<div class="codetabs" markdown="1">
-<div data-lang="Bash" markdown="1">
 {% highlight bash %}
 $ ./bin/start-cluster.sh  # Start Flink
 {% endhighlight %}
-</div>
-<div data-lang="Windows Shell" markdown="1">
-Note: The ``bin`` folder of your Java Runtime Environment must be included in Window's ``%PATH%`` variable.
-Follow this [guide](http://www.java.com/en/download/help/path.xml) to add Java to the ``%PATH%`` variable.
 
-{% highlight bash %}
-$ cd flink
-$ cd bin
-$ start-cluster.bat
-{% endhighlight %}
+Check the __JobManager's web frontend__ at [http://localhost:8081](http://localhost:8081) and make sure everything is up and running. The web frontend should report a single available TaskManager instance.
 
-After that, you need to open a second terminal to run jobs using `flink.bat`.
-
-</div>
-</div> 
-
-Check the __Dispatcher's web frontend__ at [http://localhost:8081](http://localhost:8081) and make sure everything is up and running. The web frontend should report a single available TaskManager instance.
-
-<a href="{{ site.baseurl }}/page/img/quickstart-setup/jobmanager-1.png" ><img class="img-responsive" src="{{ site.baseurl }}/page/img/quickstart-setup/jobmanager-1.png" alt="Dispatcher: Overview"/></a>
+<a href="{% link /page/img/quickstart-setup/jobmanager-1.png %}" ><img class="img-responsive" src="{% link /page/img/quickstart-setup/jobmanager-1.png %}" alt="JobManager: Overview"/></a>
 
 You can also verify that the system is running by checking the log files in the `logs` directory:
 

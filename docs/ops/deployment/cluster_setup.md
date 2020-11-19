@@ -55,7 +55,7 @@ You can set this variable in `conf/flink-conf.yaml` via the `env.java.home` key.
 
 ## Flink Setup
 
-Go to the [downloads page]({{ site.download_url }}) and get the ready-to-run package. Make sure to pick the Flink package **matching your Hadoop version**. If you don't plan to use Hadoop, pick any version.
+Go to the [downloads page]({{ site.download_url }}) and get the ready-to-run package.
 
 After downloading the latest release, copy the archive to your master node and extract it:
 
@@ -68,11 +68,11 @@ cd flink-*
 
 After having extracted the system files, you need to configure Flink for the cluster by editing *conf/flink-conf.yaml*.
 
-Set the `jobmanager.rpc.address` key to point to your master node. You should also define the maximum amount of main memory Flink is allowed to allocate on each node by setting the `jobmanager.heap.size` and `taskmanager.memory.process.size` keys.
+Set the `jobmanager.rpc.address` key to point to your master node. You should also define the maximum amount of main memory Flink is allowed to allocate on each node by setting the `jobmanager.memory.process.size` and `taskmanager.memory.process.size` keys.
 
 These values are given in MB. If some worker nodes have more main memory which you want to allocate to the Flink system you can overwrite the default value by setting `taskmanager.memory.process.size` or `taskmanager.memory.flink.size` in *conf/flink-conf.yaml* on those specific nodes.
 
-Finally, you must provide a list of all nodes in your cluster which shall be used as worker nodes. Therefore, similar to the HDFS configuration, edit the file *conf/slaves* and enter the IP/host name of each worker node. Each worker node will later run a TaskManager.
+Finally, you must provide a list of all nodes in your cluster that shall be used as worker nodes, i.e., nodes running a TaskManager. Edit the file *conf/workers* and enter the IP/host name of each worker node.
 
 The following example illustrates the setup with three nodes (with IP addresses from _10.0.0.1_
 to _10.0.0.3_ and hostnames _master_, _worker1_, _worker2_) and shows the contents of the
@@ -80,7 +80,7 @@ configuration files (which need to be accessible at the same path on all machine
 
 <div class="row">
   <div class="col-md-6 text-center">
-    <img src="{{ site.baseurl }}/page/img/quickstart_cluster.png" style="width: 60%">
+    <img src="{% link /page/img/quickstart_cluster.png %}" style="width: 60%">
   </div>
 <div class="col-md-6">
   <div class="row">
@@ -91,7 +91,7 @@ configuration files (which need to be accessible at the same path on all machine
   </div>
 <div class="row" style="margin-top: 1em;">
   <p class="lead text-center">
-    /path/to/<strong>flink/<br>conf/slaves</strong>
+    /path/to/<strong>flink/<br>conf/workers</strong>
   <pre>
 10.0.0.2
 10.0.0.3</pre>
@@ -102,12 +102,12 @@ configuration files (which need to be accessible at the same path on all machine
 
 The Flink directory must be available on every worker under the same path. You can use a shared NFS directory, or copy the entire Flink directory to every worker node.
 
-Please see the [configuration page](../config.html) for details and additional configuration options.
+Please see the [configuration page]({% link ops/config.md %}) for details and additional configuration options.
 
 In particular,
 
- * the amount of available memory per JobManager (`jobmanager.heap.size`),
- * the amount of available memory per TaskManager (`taskmanager.memory.process.size` and check [memory setup guide](../memory/mem_tuning.html#configure-memory-for-standalone-deployment)),
+ * the amount of available memory per JobManager (`jobmanager.memory.process.size`),
+ * the amount of available memory per TaskManager (`taskmanager.memory.process.size` and check [memory setup guide]({% link ops/memory/mem_tuning.md %}#configure-memory-for-standalone-deployment)),
  * the number of available CPUs per machine (`taskmanager.numberOfTaskSlots`),
  * the total number of CPUs in the cluster (`parallelism.default`) and
  * the temporary directories (`io.tmp.dirs`)
@@ -118,7 +118,7 @@ are very important configuration values.
 
 ### Starting Flink
 
-The following script starts a JobManager on the local node and connects via SSH to all worker nodes listed in the *slaves* file to start the TaskManager on each node. Now your Flink system is up and running. The JobManager running on the local node will now accept jobs at the configured RPC port.
+The following script starts a JobManager on the local node and connects via SSH to all worker nodes listed in the *workers* file to start the TaskManager on each node. Now your Flink system is up and running. The JobManager running on the local node will now accept jobs at the configured RPC port.
 
 Assuming that you are on the master node and inside the Flink directory:
 

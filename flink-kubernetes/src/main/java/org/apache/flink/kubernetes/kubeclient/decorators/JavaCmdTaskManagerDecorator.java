@@ -27,12 +27,14 @@ import org.apache.flink.runtime.clusterframework.ContaineredTaskManagerParameter
 import org.apache.flink.runtime.clusterframework.TaskExecutorProcessSpec;
 import org.apache.flink.runtime.clusterframework.TaskExecutorProcessUtils;
 import org.apache.flink.runtime.entrypoint.parser.CommandLineOptions;
+import org.apache.flink.runtime.util.config.memory.ProcessMemoryUtils;
 
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
 
 import java.util.Arrays;
 
+import static org.apache.flink.kubernetes.utils.Constants.NATIVE_KUBERNETES_COMMAND;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
@@ -50,7 +52,7 @@ public class JavaCmdTaskManagerDecorator extends AbstractKubernetesStepDecorator
 	public FlinkPod decorateFlinkPod(FlinkPod flinkPod) {
 		final Container mainContainerWithStartCmd = new ContainerBuilder(flinkPod.getMainContainer())
 			.withCommand(kubernetesTaskManagerParameters.getContainerEntrypoint())
-			.withArgs(Arrays.asList("/bin/bash", "-c", getTaskManagerStartCommand()))
+			.withArgs(Arrays.asList(NATIVE_KUBERNETES_COMMAND, getTaskManagerStartCommand()))
 			.build();
 
 		return new FlinkPod.Builder(flinkPod)
@@ -87,7 +89,7 @@ public class JavaCmdTaskManagerDecorator extends AbstractKubernetesStepDecorator
 			String mainClass,
 			String mainArgs) {
 		final TaskExecutorProcessSpec taskExecutorProcessSpec = tmParams.getTaskExecutorProcessSpec();
-		final String jvmMemOpts = TaskExecutorProcessUtils.generateJvmParametersStr(taskExecutorProcessSpec);
+		final String jvmMemOpts = ProcessMemoryUtils.generateJvmParametersStr(taskExecutorProcessSpec);
 		String args = TaskExecutorProcessUtils.generateDynamicConfigsStr(taskExecutorProcessSpec);
 		if (mainArgs != null) {
 			args += " " + mainArgs;

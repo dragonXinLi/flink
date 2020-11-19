@@ -21,9 +21,14 @@ package org.apache.flink.runtime.operators.coordination;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.util.SerializableFunction;
 
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * A simple testing implementation of the {@link OperatorCoordinator}.
@@ -34,11 +39,32 @@ class TestingOperatorCoordinator implements OperatorCoordinator {
 
 	private final ArrayList<Integer> failedTasks = new ArrayList<>();
 
+	private final CountDownLatch blockOnCloseLatch;
+
+	@Nullable
+	private byte[] lastRestoredCheckpointState;
+
+	private BlockingQueue<CompletableFuture<byte[]>> triggeredCheckpoints;
+
+	private BlockingQueue<Long> lastCheckpointComplete;
+
+	private BlockingQueue<OperatorEvent> receivedOperatorEvents;
+
 	private boolean started;
 	private boolean closed;
 
 	public TestingOperatorCoordinator(OperatorCoordinator.Context context) {
+		this(context, null);
+	}
+
+	public TestingOperatorCoordinator(
+			OperatorCoordinator.Context context,
+			CountDownLatch blockOnCloseLatch) {
 		this.context = context;
+		this.triggeredCheckpoints = new LinkedBlockingQueue<>();
+		this.lastCheckpointComplete = new LinkedBlockingQueue<>();
+		this.receivedOperatorEvents = new LinkedBlockingQueue<>();
+		this.blockOnCloseLatch = blockOnCloseLatch;
 	}
 
 	// ------------------------------------------------------------------------
@@ -49,31 +75,37 @@ class TestingOperatorCoordinator implements OperatorCoordinator {
 	}
 
 	@Override
-	public void close() {
+	public void close() throws InterruptedException {
 		closed = true;
+		if (blockOnCloseLatch != null) {
+			blockOnCloseLatch.await();
+		}
 	}
 
 	@Override
-	public void handleEventFromOperator(int subtask, OperatorEvent event) {}
+	public void handleEventFromOperator(int subtask, OperatorEvent event) {
+		receivedOperatorEvents.add(event);
+	}
 
 	@Override
-	public void subtaskFailed(int subtask) {
+	public void subtaskFailed(int subtask, @Nullable Throwable reason) {
 		failedTasks.add(subtask);
 	}
 
 	@Override
-	public CompletableFuture<byte[]> checkpointCoordinator(long checkpointId) {
-		throw new UnsupportedOperationException();
+	public void checkpointCoordinator(long checkpointId, CompletableFuture<byte[]> result) {
+		boolean added = triggeredCheckpoints.offer(result);
+		assert added; // guard the test assumptions
 	}
 
 	@Override
-	public void checkpointComplete(long checkpointId) {
-		throw new UnsupportedOperationException();
+	public void notifyCheckpointComplete(long checkpointId) {
+		lastCheckpointComplete.offer(checkpointId);
 	}
 
 	@Override
 	public void resetToCheckpoint(byte[] checkpointData) {
-		throw new UnsupportedOperationException();
+		lastRestoredCheckpointState = checkpointData;
 	}
 
 	// ------------------------------------------------------------------------
@@ -90,8 +122,34 @@ class TestingOperatorCoordinator implements OperatorCoordinator {
 		return closed;
 	}
 
-	public Collection<Integer> getFailedTasks() {
+	public List<Integer> getFailedTasks() {
 		return failedTasks;
+	}
+
+	@Nullable
+	public byte[] getLastRestoredCheckpointState() {
+		return lastRestoredCheckpointState;
+	}
+
+	public CompletableFuture<byte[]> getLastTriggeredCheckpoint() throws InterruptedException {
+		return triggeredCheckpoints.take();
+	}
+
+	public boolean hasTriggeredCheckpoint() {
+		return !triggeredCheckpoints.isEmpty();
+	}
+
+	public long getLastCheckpointComplete() throws InterruptedException {
+		return lastCheckpointComplete.take();
+	}
+
+	@Nullable
+	public OperatorEvent getNextReceivedOperatorEvent() {
+		return receivedOperatorEvents.poll();
+	}
+
+	public boolean hasCompleteCheckpoint() throws InterruptedException {
+		return !lastCheckpointComplete.isEmpty();
 	}
 
 	// ------------------------------------------------------------------------

@@ -23,15 +23,8 @@ import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.elasticsearch.testutils.SourceSinkDataTestKit;
 import org.apache.flink.test.util.AbstractTestBase;
-import org.apache.flink.util.InstantiationUtil;
 
 import org.elasticsearch.client.Client;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.rules.TemporaryFolder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -49,86 +42,55 @@ import static org.junit.Assert.fail;
  */
 public abstract class ElasticsearchSinkTestBase<C extends AutoCloseable, A> extends AbstractTestBase {
 
-	private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchSinkTestBase.class);
+	// It's not good that we're using a Client here instead of a Rest Client but we need this
+	// for compatibility with ES 5.3.x. As soon as we drop that we can use RestClient here.
+	protected abstract Client getClient();
 
-	protected static final String CLUSTER_NAME = "test-cluster";
-
-	protected static EmbeddedElasticsearchNodeEnvironment embeddedNodeEnv;
-
-	@ClassRule
-	public static TemporaryFolder tempFolder = new TemporaryFolder();
-
-	@BeforeClass
-	public static void prepare() throws Exception {
-
-		LOG.info("-------------------------------------------------------------------------");
-		LOG.info("    Starting embedded Elasticsearch node ");
-		LOG.info("-------------------------------------------------------------------------");
-
-		// dynamically load version-specific implementation of the Elasticsearch embedded node environment
-		Class<?> clazz = Class.forName(
-			"org.apache.flink.streaming.connectors.elasticsearch.EmbeddedElasticsearchNodeEnvironmentImpl");
-		embeddedNodeEnv = (EmbeddedElasticsearchNodeEnvironment) InstantiationUtil.instantiate(clazz);
-
-		embeddedNodeEnv.start(tempFolder.newFolder(), CLUSTER_NAME);
-
-	}
-
-	@AfterClass
-	public static void shutdown() throws Exception {
-
-		LOG.info("-------------------------------------------------------------------------");
-		LOG.info("    Shutting down embedded Elasticsearch node ");
-		LOG.info("-------------------------------------------------------------------------");
-
-		embeddedNodeEnv.close();
-
-	}
+	protected abstract String getClusterName();
 
 	/**
 	 * Tests that the Elasticsearch sink works properly with json.
 	 */
 	public void runElasticsearchSinkTest() throws Exception {
-		runElasticSearchSinkTest(SourceSinkDataTestKit::getJsonSinkFunction);
+		runElasticSearchSinkTest("elasticsearch-sink-test-json-index", SourceSinkDataTestKit::getJsonSinkFunction);
 	}
 
 	/**
 	 * Tests that the Elasticsearch sink works properly with cbor.
 	 */
 	public void runElasticsearchSinkCborTest() throws Exception {
-		runElasticSearchSinkTest(SourceSinkDataTestKit::getCborSinkFunction);
+		runElasticSearchSinkTest("elasticsearch-sink-test-cbor-index", SourceSinkDataTestKit::getCborSinkFunction);
 	}
 
 	/**
 	 * Tests that the Elasticsearch sink works properly with smile.
 	 */
 	public void runElasticsearchSinkSmileTest() throws Exception {
-		runElasticSearchSinkTest(SourceSinkDataTestKit::getSmileSinkFunction);
+		runElasticSearchSinkTest("elasticsearch-sink-test-smile-index", SourceSinkDataTestKit::getSmileSinkFunction);
 	}
 
 	/**
 	 * Tests that the Elasticsearch sink works properly with yaml.
 	 */
 	public void runElasticsearchSinkYamlTest() throws Exception {
-		runElasticSearchSinkTest(SourceSinkDataTestKit::getYamlSinkFunction);
+		runElasticSearchSinkTest("elasticsearch-sink-test-yaml-index", SourceSinkDataTestKit::getYamlSinkFunction);
 	}
 
-	private void runElasticSearchSinkTest(Function<String, ElasticsearchSinkFunction<Tuple2<Integer, String>>> functionFactory) throws Exception {
-		final String index = "elasticsearch-sink-test-index";
-
+	private void runElasticSearchSinkTest(String index, Function<String, ElasticsearchSinkFunction<Tuple2<Integer, String>>> functionFactory) throws Exception {
 		final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
 		DataStreamSource<Tuple2<Integer, String>> source = env.addSource(new SourceSinkDataTestKit.TestDataSourceFunction());
 
 		source.addSink(createElasticsearchSinkForEmbeddedNode(
 				1,
-				CLUSTER_NAME,
+				getClusterName(),
 				functionFactory.apply(index)));
 
 		env.execute("Elasticsearch Sink Test");
 
 		// verify the results
-		Client client = embeddedNodeEnv.getClient();
+		Client client = getClient();
+
 		SourceSinkDataTestKit.verifyProducedSinkData(client, index);
 
 		client.close();
@@ -137,11 +99,11 @@ public abstract class ElasticsearchSinkTestBase<C extends AutoCloseable, A> exte
 	/**
 	 * Tests that the Elasticsearch sink fails eagerly if the provided list of addresses is {@code null}.
 	 */
-	public void runNullAddressesTest() throws Exception {
+	public void runNullAddressesTest() {
 		try {
 			createElasticsearchSink(
 					1,
-					CLUSTER_NAME,
+					getClusterName(),
 					null,
 					SourceSinkDataTestKit.getJsonSinkFunction("test"));
 		} catch (IllegalArgumentException | NullPointerException expectedException) {
@@ -155,11 +117,11 @@ public abstract class ElasticsearchSinkTestBase<C extends AutoCloseable, A> exte
 	/**
 	 * Tests that the Elasticsearch sink fails eagerly if the provided list of addresses is empty.
 	 */
-	public void runEmptyAddressesTest() throws Exception {
+	public void runEmptyAddressesTest() {
 		try {
 			createElasticsearchSink(
 					1,
-					CLUSTER_NAME,
+					getClusterName(),
 					Collections.emptyList(),
 					SourceSinkDataTestKit.getJsonSinkFunction("test"));
 		} catch (IllegalArgumentException expectedException) {

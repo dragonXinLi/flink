@@ -59,9 +59,9 @@ or configuration files. For instance, in non-containerized environments, the
 artifact server will provide the Flink binaries. What files will be served
 depends on the configuration overlay used.
 
-### Flink's Dispatcher and Web Interface
+### Flink's JobManager and Web Interface
 
-The Dispatcher and the web interface provide a central point for monitoring,
+The JobManager and the web interface provide a central point for monitoring,
 job submission, and other client interaction with the cluster
 (see [FLIP-6](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=65147077)).
 
@@ -215,7 +215,7 @@ For example:
 
     bin/mesos-appmaster.sh \
         -Dmesos.master=master.foobar.org:5050 \
-        -Djobmanager.heap.size=1024m \
+        -Djobmanager.memory.process.size=1472m \
         -Djobmanager.rpc.port=6123 \
         -Drest.port=8081 \
         -Dtaskmanager.memory.process.size=3500m \
@@ -224,8 +224,8 @@ For example:
 
 ### High Availability
 
-You will need to run a service like Marathon or Apache Aurora which takes care of restarting the Flink master process in case of node or process failures.
-In addition, Zookeeper needs to be configured like described in the [High Availability section of the Flink docs]({{ site.baseurl }}/ops/jobmanager_high_availability.html).
+You will need to run a service like Marathon or Apache Aurora which takes care of restarting the JobManager process in case of node or process failures.
+In addition, Zookeeper needs to be configured like described in the [High Availability section of the Flink docs]({% link ops/jobmanager_high_availability.md %}).
 
 #### Marathon
 
@@ -236,7 +236,7 @@ Here is an example configuration for Marathon:
 
     {
         "id": "flink",
-        "cmd": "$FLINK_HOME/bin/mesos-appmaster.sh -Djobmanager.heap.size=1024m -Djobmanager.rpc.port=6123 -Drest.port=8081 -Dtaskmanager.memory.process.size=1024m -Dtaskmanager.numberOfTaskSlots=2 -Dparallelism.default=2 -Dmesos.resourcemanager.tasks.cpus=1",
+        "cmd": "$FLINK_HOME/bin/mesos-appmaster.sh -Djobmanager.memory.process.size=1472m -Djobmanager.rpc.port=6123 -Drest.port=8081 -Dtaskmanager.memory.process.size=1024m -Dtaskmanager.numberOfTaskSlots=2 -Dparallelism.default=2 -Dmesos.resourcemanager.tasks.cpus=1",
         "cpus": 1.0,
         "mem": 1024
     }
@@ -245,7 +245,7 @@ When running Flink with Marathon, the whole Flink cluster including the job mana
 
 ### Configuration parameters
 
-For a list of Mesos specific configuration, refer to the [Mesos section]({{ site.baseurl }}/ops/config.html#mesos)
+For a list of Mesos specific configuration, refer to the [Mesos section]({% link ops/config.md %}#mesos)
 of the configuration documentation.
 
 {% top %}

@@ -55,7 +55,6 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.RocksDB;
-import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,8 +107,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 
 	/** True if incremental checkpointing is enabled. */
 	private boolean enableIncrementalCheckpointing;
-	/** True if ttl compaction filter is enabled. */
-	private boolean enableTtlCompactionFilter;
+
 	private RocksDBNativeMetricOptions nativeMetricOptions;
 	private int numberOfTransferingThreads;
 	private long writeBatchSize = RocksDBConfigurableOptions.WRITE_BATCH_SIZE.defaultValue().getBytes();
@@ -200,19 +198,13 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 			metricGroup,
 			stateHandles,
 			keyGroupCompressionDecorator,
-			cancelStreamRegistry
-		);
+			cancelStreamRegistry);
 		this.injectedTestDB = injectedTestDB;
 		this.injectedDefaultColumnFamilyHandle = injectedDefaultColumnFamilyHandle;
 	}
 
 	RocksDBKeyedStateBackendBuilder<K> setEnableIncrementalCheckpointing(boolean enableIncrementalCheckpointing) {
 		this.enableIncrementalCheckpointing = enableIncrementalCheckpointing;
-		return this;
-	}
-
-	RocksDBKeyedStateBackendBuilder<K> setEnableTtlCompactionFilter(boolean enableTtlCompactionFilter) {
-		this.enableTtlCompactionFilter = enableTtlCompactionFilter;
 		return this;
 	}
 
@@ -248,13 +240,11 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 		ColumnFamilyHandle defaultColumnFamilyHandle = null;
 		RocksDBNativeMetricMonitor nativeMetricMonitor = null;
 		CloseableRegistry cancelStreamRegistryForBackend = new CloseableRegistry();
-		// The write options to use in the states.
-		WriteOptions writeOptions = null;
 		LinkedHashMap<String, RocksDBKeyedStateBackend.RocksDbKvStateInfo> kvStateInformation = new LinkedHashMap<>();
 		RocksDB db = null;
 		AbstractRocksDBRestoreOperation restoreOperation = null;
 		RocksDbTtlCompactFiltersManager ttlCompactFiltersManager =
-			new RocksDbTtlCompactFiltersManager(enableTtlCompactionFilter, ttlTimeProvider);
+			new RocksDbTtlCompactFiltersManager(ttlTimeProvider);
 
 		ResourceGuard rocksDBResourceGuard = new ResourceGuard();
 		SnapshotStrategy<K> snapshotStrategy;
@@ -287,8 +277,7 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 				}
 			}
 
-			writeOptions = new WriteOptions().setDisableWAL(true);
-			writeBatchWrapper = new RocksDBWriteBatchWrapper(db, writeOptions, writeBatchSize);
+			writeBatchWrapper = new RocksDBWriteBatchWrapper(db, optionsContainer.getWriteOptions(), writeBatchSize);
 			// it is important that we only create the key builder after the restore, and not before;
 			// restore operations may reconfigure the key serializer, so accessing the key serializer
 			// only now we can be certain that the key serializer used in the builder is final.
@@ -300,8 +289,12 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 			snapshotStrategy = initializeSavepointAndCheckpointStrategies(cancelStreamRegistryForBackend, rocksDBResourceGuard,
 				kvStateInformation, keyGroupPrefixBytes, db, backendUID, materializedSstFiles, lastCompletedCheckpointId);
 			// init priority queue factory
-			priorityQueueFactory = initPriorityQueueFactory(keyGroupPrefixBytes, kvStateInformation, db,
-				writeBatchWrapper, nativeMetricMonitor);
+			priorityQueueFactory = initPriorityQueueFactory(
+				keyGroupPrefixBytes,
+				kvStateInformation,
+				db,
+				writeBatchWrapper,
+				nativeMetricMonitor);
 		} catch (Throwable e) {
 			// Do clean up
 			List<ColumnFamilyOptions> columnFamilyOptions = new ArrayList<>(kvStateInformation.values().size());
@@ -319,7 +312,6 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 			IOUtils.closeQuietly(restoreOperation);
 			IOUtils.closeAllQuietly(columnFamilyOptions);
 			IOUtils.closeQuietly(optionsContainer);
-			IOUtils.closeQuietly(writeOptions);
 			ttlCompactFiltersManager.disposeAndClearRegisteredCompactionFactories();
 			kvStateInformation.clear();
 			try {
@@ -389,7 +381,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 				nativeMetricOptions,
 				metricGroup,
 				restoreStateHandles,
-				ttlCompactFiltersManager);
+				ttlCompactFiltersManager,
+				optionsContainer.getWriteBufferManagerCapacity());
 		}
 		KeyedStateHandle firstStateHandle = restoreStateHandles.iterator().next();
 		if (firstStateHandle instanceof IncrementalKeyedStateHandle) {
@@ -410,7 +403,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 				metricGroup,
 				restoreStateHandles,
 				ttlCompactFiltersManager,
-				writeBatchSize);
+				writeBatchSize,
+				optionsContainer.getWriteBufferManagerCapacity());
 		} else {
 			return new RocksDBFullRestoreOperation<>(
 				keyGroupRange,
@@ -428,7 +422,8 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 				metricGroup,
 				restoreStateHandles,
 				ttlCompactFiltersManager,
-				writeBatchSize);
+				writeBatchSize,
+				optionsContainer.getWriteBufferManagerCapacity());
 		}
 	}
 
@@ -492,10 +487,11 @@ public class RocksDBKeyedStateBackendBuilder<K> extends AbstractKeyedStateBacken
 					numberOfKeyGroups,
 					kvStateInformation,
 					db,
+					optionsContainer.getReadOptions(),
 					writeBatchWrapper,
 					nativeMetricMonitor,
-					columnFamilyOptionsFactory
-				);
+					columnFamilyOptionsFactory,
+					optionsContainer.getWriteBufferManagerCapacity());
 				break;
 			default:
 				throw new IllegalArgumentException("Unknown priority queue state type: " + priorityQueueStateType);

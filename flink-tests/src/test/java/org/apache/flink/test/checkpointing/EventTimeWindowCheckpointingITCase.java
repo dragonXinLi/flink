@@ -37,18 +37,18 @@ import org.apache.flink.runtime.state.AbstractStateBackend;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.functions.windowing.RichWindowFunction;
 import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.test.checkpointing.utils.FailingSource;
 import org.apache.flink.test.checkpointing.utils.IntType;
 import org.apache.flink.test.checkpointing.utils.ValidatingSink;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
-import org.apache.flink.testutils.junit.category.AlsoRunWithLegacyScheduler;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.TestLogger;
 
@@ -58,7 +58,6 @@ import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
@@ -70,7 +69,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.flink.test.checkpointing.EventTimeWindowCheckpointingITCase.StateBackendEnum.ROCKSDB_INCREMENTAL_ZK;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -78,7 +76,7 @@ import static org.junit.Assert.fail;
 
 /**
  * This verifies that checkpointing works correctly with event time windows. This is more
- * strict than {@link WindowCheckpointingITCase} because for event-time the contents
+ * strict than {@link ProcessingTimeWindowCheckpointingITCase} because for event-time the contents
  * of the emitted windows are deterministic.
  *
  * <p>Split into multiple test classes in order to decrease the runtime per backend
@@ -86,7 +84,6 @@ import static org.junit.Assert.fail;
  * I/O heavy variants.
  */
 @SuppressWarnings("serial")
-@Category(AlsoRunWithLegacyScheduler.class)
 @RunWith(Parameterized.class)
 public class EventTimeWindowCheckpointingITCase extends TestLogger {
 
@@ -178,9 +175,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 			}
 			case ROCKSDB_INCREMENTAL:
 				// Test RocksDB based timer service as well
-				config.setString(
-					RocksDBOptions.TIMER_SERVICE_FACTORY,
-					RocksDBStateBackend.PriorityQueueStateType.ROCKSDB.toString());
+				config.set(RocksDBOptions.TIMER_SERVICE_FACTORY, RocksDBStateBackend.PriorityQueueStateType.ROCKSDB);
 				setupRocksDB(config, 16, true);
 				break;
 			case ROCKSDB_INCREMENTAL_ZK: {
@@ -261,7 +256,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 		try {
 			StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 			env.setParallelism(PARALLELISM);
-			env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 			env.enableCheckpointing(100);
 			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 						env.setStateBackend(this.stateBackend);
@@ -271,7 +265,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 					.addSource(new FailingSource(new KeyedEventTimeGenerator(numKeys, windowSize), numElementsPerKey))
 					.rebalance()
 					.keyBy(0)
-					.timeWindow(Time.of(windowSize, MILLISECONDS))
+					.window(TumblingEventTimeWindows.of(Time.milliseconds(windowSize)))
 					.apply(new RichWindowFunction<Tuple2<Long, IntType>, Tuple4<Long, Long, Long, IntType>, Tuple, TimeWindow>() {
 
 						private boolean open = false;
@@ -336,7 +330,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 			StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 			env.setParallelism(PARALLELISM);
 			env.setMaxParallelism(maxParallelism);
-			env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 			env.enableCheckpointing(100);
 			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 						env.setStateBackend(this.stateBackend);
@@ -346,7 +339,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 					.addSource(new FailingSource(new KeyedEventTimeGenerator(numKeys, windowSize), numElementsPerKey))
 					.rebalance()
 					.keyBy(0)
-					.timeWindow(Time.of(windowSize, MILLISECONDS))
+					.window(TumblingEventTimeWindows.of(Time.milliseconds(windowSize)))
 					.apply(new RichWindowFunction<Tuple2<Long, IntType>, Tuple4<Long, Long, Long, IntType>, Tuple, TimeWindow>() {
 
 						private boolean open = false;
@@ -404,7 +397,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 			StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 			env.setMaxParallelism(2 * PARALLELISM);
 			env.setParallelism(PARALLELISM);
-			env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 			env.enableCheckpointing(100);
 			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 						env.setStateBackend(this.stateBackend);
@@ -414,7 +406,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 					.addSource(new FailingSource(new KeyedEventTimeGenerator(numKeys, windowSlide), numElementsPerKey))
 					.rebalance()
 					.keyBy(0)
-					.timeWindow(Time.of(windowSize, MILLISECONDS), Time.of(windowSlide, MILLISECONDS))
+					.window(SlidingEventTimeWindows.of(Time.milliseconds(windowSize), Time.milliseconds(windowSlide)))
 					.apply(new RichWindowFunction<Tuple2<Long, IntType>, Tuple4<Long, Long, Long, IntType>, Tuple, TimeWindow>() {
 
 						private boolean open = false;
@@ -468,7 +460,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 		try {
 			StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 			env.setParallelism(PARALLELISM);
-			env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 			env.enableCheckpointing(100);
 			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 						env.setStateBackend(this.stateBackend);
@@ -478,7 +469,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 					.addSource(new FailingSource(new KeyedEventTimeGenerator(numKeys, windowSize), numElementsPerKey))
 					.rebalance()
 					.keyBy(0)
-					.timeWindow(Time.of(windowSize, MILLISECONDS))
+					.window(TumblingEventTimeWindows.of(Time.milliseconds(windowSize)))
 					.reduce(
 							new ReduceFunction<Tuple2<Long, IntType>>() {
 
@@ -540,7 +531,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 		try {
 			StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 			env.setParallelism(PARALLELISM);
-			env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
 			env.enableCheckpointing(100);
 			env.setRestartStrategy(RestartStrategies.fixedDelayRestart(1, 0));
 						env.setStateBackend(this.stateBackend);
@@ -550,7 +540,7 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 					.addSource(new FailingSource(new KeyedEventTimeGenerator(numKeys, windowSlide), numElementsPerKey))
 					.rebalance()
 					.keyBy(0)
-					.timeWindow(Time.of(windowSize, MILLISECONDS), Time.of(windowSlide, MILLISECONDS))
+					.window(SlidingEventTimeWindows.of(Time.milliseconds(windowSize), Time.milliseconds(windowSlide)))
 					.reduce(
 							new ReduceFunction<Tuple2<Long, IntType>>() {
 
@@ -705,25 +695,11 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 	}
 
 	private int numElementsPerKey() {
-		switch (this.stateBackendEnum) {
-			case ROCKSDB_FULLY_ASYNC:
-			case ROCKSDB_INCREMENTAL:
-			case ROCKSDB_INCREMENTAL_ZK:
-				return 3000;
-			default:
-				return 300;
-		}
+		return 3000;
 	}
 
 	private int windowSize() {
-		switch (this.stateBackendEnum) {
-			case ROCKSDB_FULLY_ASYNC:
-			case ROCKSDB_INCREMENTAL:
-			case ROCKSDB_INCREMENTAL_ZK:
-				return 1000;
-			default:
-				return 100;
-		}
+		return 1000;
 	}
 
 	private int windowSlide() {
@@ -731,13 +707,6 @@ public class EventTimeWindowCheckpointingITCase extends TestLogger {
 	}
 
 	private int numKeys() {
-		switch (this.stateBackendEnum) {
-			case ROCKSDB_FULLY_ASYNC:
-			case ROCKSDB_INCREMENTAL:
-			case ROCKSDB_INCREMENTAL_ZK:
-				return 100;
-			default:
-				return 20;
-		}
+		return 100;
 	}
 }

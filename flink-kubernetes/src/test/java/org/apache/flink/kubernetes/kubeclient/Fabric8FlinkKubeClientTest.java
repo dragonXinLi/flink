@@ -22,45 +22,50 @@ import org.apache.flink.client.deployment.ClusterSpecification;
 import org.apache.flink.configuration.BlobServerOptions;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.configuration.RestOptions;
-import org.apache.flink.kubernetes.KubernetesTestBase;
+import org.apache.flink.core.testutils.FlinkMatchers;
+import org.apache.flink.kubernetes.KubernetesClientTestBase;
 import org.apache.flink.kubernetes.KubernetesTestUtils;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptions;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptionsInternal;
 import org.apache.flink.kubernetes.entrypoint.KubernetesSessionClusterEntrypoint;
+import org.apache.flink.kubernetes.kubeclient.decorators.ExternalServiceDecorator;
 import org.apache.flink.kubernetes.kubeclient.factory.KubernetesJobManagerFactory;
 import org.apache.flink.kubernetes.kubeclient.parameters.KubernetesJobManagerParameters;
+import org.apache.flink.kubernetes.kubeclient.resources.KubernetesConfigMap;
 import org.apache.flink.kubernetes.kubeclient.resources.KubernetesPod;
-import org.apache.flink.kubernetes.utils.KubernetesUtils;
 
 import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.api.model.ConfigMapBuilder;
 import io.fabric8.kubernetes.api.model.HasMetadata;
-import io.fabric8.kubernetes.api.model.LoadBalancerIngress;
-import io.fabric8.kubernetes.api.model.LoadBalancerStatus;
 import io.fabric8.kubernetes.api.model.OwnerReference;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.Service;
-import io.fabric8.kubernetes.api.model.ServiceBuilder;
-import io.fabric8.kubernetes.api.model.ServiceStatusBuilder;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
-import org.junit.Before;
 import org.junit.Test;
 
-import javax.annotation.Nullable;
-
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.apache.flink.kubernetes.utils.Constants.CONFIG_FILE_LOG4J_NAME;
+import static org.apache.flink.kubernetes.utils.Constants.CONFIG_FILE_LOGBACK_NAME;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Tests for Fabric implementation of {@link FlinkKubeClient}.
  */
-public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
-	private static final int REST_PORT = 9081;
+public class Fabric8FlinkKubeClientTest extends KubernetesClientTestBase {
 	private static final int RPC_PORT = 7123;
 	private static final int BLOB_SERVER_PORT = 8346;
 
@@ -69,16 +74,27 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 
 	private static final String SERVICE_ACCOUNT_NAME = "service-test";
 
+	private static final String TASKMANAGER_POD_NAME = "mock-task-manager-pod";
+
+	private static final String TESTING_CONFIG_MAP_NAME = "test-config-map";
+	private static final String TESTING_CONFIG_MAP_KEY = "test-config-map-key";
+	private static final String TESTING_CONFIG_MAP_VALUE = "test-config-map-value";
+	private static final String TESTING_CONFIG_MAP_NEW_VALUE = "test-config-map-new-value";
+
+	private static final Map<String, String> TESTING_LABELS = new HashMap<String, String>() {
+		{
+			put("label1", "value1");
+			put("label2", "value2");
+		}
+	};
+
 	private static final String ENTRY_POINT_CLASS = KubernetesSessionClusterEntrypoint.class.getCanonicalName();
 
 	private KubernetesJobManagerSpecification kubernetesJobManagerSpecification;
 
-	@Before
-	public void setup() throws Exception {
-		super.setup();
-
-		KubernetesTestUtils.createTemporyFile("some data", flinkConfDir, "logback.xml");
-		KubernetesTestUtils.createTemporyFile("some data", flinkConfDir, "log4j.properties");
+	@Override
+	protected void setupFlinkConfig() {
+		super.setupFlinkConfig();
 
 		flinkConfig.set(KubernetesConfigOptions.CONTAINER_IMAGE_PULL_POLICY, CONTAINER_IMAGE_PULL_POLICY);
 		flinkConfig.set(KubernetesConfigOptionsInternal.ENTRY_POINT_CLASS, ENTRY_POINT_CLASS);
@@ -87,6 +103,14 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 		flinkConfig.set(BlobServerOptions.PORT, Integer.toString(BLOB_SERVER_PORT));
 		flinkConfig.set(KubernetesConfigOptions.JOB_MANAGER_CPU, JOB_MANAGER_CPU);
 		flinkConfig.set(KubernetesConfigOptions.JOB_MANAGER_SERVICE_ACCOUNT, SERVICE_ACCOUNT_NAME);
+	}
+
+	@Override
+	protected void onSetup() throws Exception {
+		super.onSetup();
+
+		KubernetesTestUtils.createTemporyFile("some data", flinkConfDir, CONFIG_FILE_LOGBACK_NAME);
+		KubernetesTestUtils.createTemporyFile("some data", flinkConfDir, CONFIG_FILE_LOG4J_NAME);
 
 		final ClusterSpecification clusterSpecification = new ClusterSpecification.ClusterSpecificationBuilder()
 			.setMasterMemoryMB(JOB_MANAGER_MEMORY)
@@ -97,7 +121,7 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 		final KubernetesJobManagerParameters kubernetesJobManagerParameters =
 			new KubernetesJobManagerParameters(flinkConfig, clusterSpecification);
 		this.kubernetesJobManagerSpecification =
-			KubernetesJobManagerFactory.createJobManagerComponent(kubernetesJobManagerParameters);
+			KubernetesJobManagerFactory.buildKubernetesJobManagerSpecification(kubernetesJobManagerParameters);
 	}
 
 	@Test
@@ -147,10 +171,10 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 			.editOrNewSpec()
 			.endSpec()
 			.build());
-		this.flinkKubeClient.createTaskManagerPod(kubernetesPod);
+		this.flinkKubeClient.createTaskManagerPod(kubernetesPod).get();
 
 		final Pod resultTaskManagerPod =
-			this.kubeClient.pods().inNamespace(NAMESPACE).withName("mock-task-manager-pod").get();
+			this.kubeClient.pods().inNamespace(NAMESPACE).withName(TASKMANAGER_POD_NAME).get();
 
 		assertEquals(
 			this.kubeClient.apps().deployments().inNamespace(NAMESPACE).list().getItems().get(0).getMetadata().getUid(),
@@ -158,7 +182,7 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 	}
 
 	@Test
-	public void testStopPod() {
+	public void testStopPod() throws ExecutionException, InterruptedException {
 		final String podName = "pod-for-delete";
 		final Pod pod = new PodBuilder()
 			.editOrNewMetadata()
@@ -171,35 +195,57 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 		this.kubeClient.pods().inNamespace(NAMESPACE).create(pod);
 		assertNotNull(this.kubeClient.pods().inNamespace(NAMESPACE).withName(podName).get());
 
-		this.flinkKubeClient.stopPod(podName);
+		this.flinkKubeClient.stopPod(podName).get();
 		assertNull(this.kubeClient.pods().inNamespace(NAMESPACE).withName(podName).get());
 	}
 
 	@Test
 	public void testServiceLoadBalancerWithNoIP() {
 		final String hostName = "test-host-name";
-		mockRestServiceWithLB(hostName, "");
+		mockExpectedServiceFromServerSide(buildExternalServiceWithLoadBalancer(hostName, ""));
 
-		final Endpoint resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		final Optional<Endpoint> resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
 
-		assertEquals(hostName, resultEndpoint.getAddress());
-		assertEquals(REST_PORT, resultEndpoint.getPort());
+		assertThat(resultEndpoint.isPresent(), is(true));
+		assertThat(resultEndpoint.get().getAddress(), is(hostName));
+		assertThat(resultEndpoint.get().getPort(), is(REST_PORT));
 	}
 
 	@Test
 	public void testServiceLoadBalancerEmptyHostAndIP() {
-		mockRestServiceWithLB("", "");
+		mockExpectedServiceFromServerSide(buildExternalServiceWithLoadBalancer("", ""));
 
-		final Endpoint resultEndpoint1 = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
-		assertNull(resultEndpoint1);
+		final Optional<Endpoint> resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		assertThat(resultEndpoint.isPresent(), is(false));
 	}
 
 	@Test
 	public void testServiceLoadBalancerNullHostAndIP() {
-		mockRestServiceWithLB(null, null);
+		mockExpectedServiceFromServerSide(buildExternalServiceWithLoadBalancer(null, null));
 
-		final Endpoint resultEndpoint2 = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
-		assertNull(resultEndpoint2);
+		final Optional<Endpoint> resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		assertThat(resultEndpoint.isPresent(), is(false));
+	}
+
+	@Test
+	public void testNodePortService() {
+		mockExpectedServiceFromServerSide(buildExternalServiceWithNodePort());
+
+		final Optional<Endpoint> resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		assertThat(resultEndpoint.isPresent(), is(true));
+		assertThat(resultEndpoint.get().getPort(), is(NODE_PORT));
+	}
+
+	@Test
+	public void testClusterIPService() {
+		mockExpectedServiceFromServerSide(buildExternalServiceWithClusterIP());
+
+		final Optional<Endpoint> resultEndpoint = flinkKubeClient.getRestEndpoint(CLUSTER_ID);
+		assertThat(resultEndpoint.isPresent(), is(true));
+		assertThat(
+			resultEndpoint.get().getAddress(),
+			is(ExternalServiceDecorator.getNamespacedExternalServiceName(CLUSTER_ID, NAMESPACE)));
+		assertThat(resultEndpoint.get().getPort(), is(REST_PORT));
 	}
 
 	@Test
@@ -208,12 +254,12 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 
 		final KubernetesPod kubernetesPod = new KubernetesPod(new PodBuilder()
 			.editOrNewMetadata()
-			.withName("mock-task-manager-pod")
+			.withName(TASKMANAGER_POD_NAME)
 			.endMetadata()
 			.editOrNewSpec()
 			.endSpec()
 			.build());
-		this.flinkKubeClient.createTaskManagerPod(kubernetesPod);
+		this.flinkKubeClient.createTaskManagerPod(kubernetesPod).get();
 
 		assertEquals(1, this.kubeClient.apps().deployments().inNamespace(NAMESPACE).list().getItems().size());
 		assertEquals(1, this.kubeClient.configMaps().inNamespace(NAMESPACE).list().getItems().size());
@@ -224,30 +270,132 @@ public class Fabric8FlinkKubeClientTest extends KubernetesTestBase {
 		assertTrue(this.kubeClient.apps().deployments().inNamespace(NAMESPACE).list().getItems().isEmpty());
 	}
 
-	private void mockRestServiceWithLB(@Nullable String hostname, @Nullable String ip) {
-		final String restServiceName = KubernetesUtils.getRestServiceName(CLUSTER_ID);
-
-		final String path = String.format("/api/v1/namespaces/%s/services/%s", NAMESPACE, restServiceName);
-		server.expect()
-			.withPath(path)
-			.andReturn(200, buildMockRestServiceWithLB(hostname, ip))
-			.always();
-
-		final Service resultService = kubeClient.services()
-			.inNamespace(NAMESPACE)
-			.withName(KubernetesUtils.getRestServiceName(CLUSTER_ID))
-			.get();
-		assertNotNull(resultService);
+	@Test
+	public void testCreateConfigMap() throws Exception {
+		final KubernetesConfigMap configMap = buildTestingConfigMap();
+		this.flinkKubeClient.createConfigMap(configMap).get();
+		final Optional<KubernetesConfigMap> currentOpt = this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME);
+		assertThat(currentOpt.isPresent(), is(true));
+		assertThat(currentOpt.get().getData().get(TESTING_CONFIG_MAP_KEY), is(TESTING_CONFIG_MAP_VALUE));
 	}
 
-	private Service buildMockRestServiceWithLB(@Nullable String hostname, @Nullable String ip) {
-		final Service service = new ServiceBuilder()
-			.build();
+	@Test
+	public void testCreateConfigMapAlreadyExisting() throws Exception {
+		final KubernetesConfigMap configMap = buildTestingConfigMap();
+		this.flinkKubeClient.createConfigMap(configMap).get();
 
-		service.setStatus(new ServiceStatusBuilder()
-			.withLoadBalancer(new LoadBalancerStatus(Collections.singletonList(
-				new LoadBalancerIngress(hostname, ip)))).build());
+		mockCreateConfigMapAlreadyExisting(configMap.getInternalResource());
+		configMap.getData().put(TESTING_CONFIG_MAP_KEY, TESTING_CONFIG_MAP_NEW_VALUE);
+		try {
+			this.flinkKubeClient.createConfigMap(configMap).get();
+			fail("Overwrite an already existing config map should fail with an exception.");
+		} catch (Exception ex) {
+			final String errorMsg = "Failed to create ConfigMap " + TESTING_CONFIG_MAP_NAME;
+			assertThat(ex, FlinkMatchers.containsMessage(errorMsg));
+		}
+		// Create failed we should still get the old value
+		final Optional<KubernetesConfigMap> currentOpt = this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME);
+		assertThat(currentOpt.isPresent(), is(true));
+		assertThat(currentOpt.get().getData().get(TESTING_CONFIG_MAP_KEY), is(TESTING_CONFIG_MAP_VALUE));
+	}
 
-		return service;
+	@Test
+	public void testDeleteConfigMapByLabels() throws Exception {
+		this.flinkKubeClient.createConfigMap(buildTestingConfigMap()).get();
+		assertThat(this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME).isPresent(), is(true));
+		this.flinkKubeClient.deleteConfigMapsByLabels(TESTING_LABELS).get();
+		assertThat(this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME).isPresent(), is(false));
+	}
+
+	@Test
+	public void testDeleteConfigMapByName() throws Exception {
+		this.flinkKubeClient.createConfigMap(buildTestingConfigMap()).get();
+		assertThat(this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME).isPresent(), is(true));
+		this.flinkKubeClient.deleteConfigMap(TESTING_CONFIG_MAP_NAME).get();
+		assertThat(this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME).isPresent(), is(false));
+	}
+
+	@Test
+	public void testCheckAndUpdateConfigMap() throws Exception {
+		this.flinkKubeClient.createConfigMap(buildTestingConfigMap());
+
+		// Checker pass
+		final boolean updated = this.flinkKubeClient.checkAndUpdateConfigMap(
+			TESTING_CONFIG_MAP_NAME,
+			c -> {
+				c.getData().put(TESTING_CONFIG_MAP_KEY, TESTING_CONFIG_MAP_NEW_VALUE);
+				return Optional.of(c);
+			}).get();
+		assertThat(updated, is(true));
+
+		final Optional<KubernetesConfigMap> configMapOpt = this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME);
+		assertThat(configMapOpt.isPresent(), is(true));
+		assertThat(configMapOpt.get().getData().get(TESTING_CONFIG_MAP_KEY), is(TESTING_CONFIG_MAP_NEW_VALUE));
+	}
+
+	@Test
+	public void testCheckAndUpdateConfigMapWithEmptyResult() throws Exception {
+		this.flinkKubeClient.createConfigMap(buildTestingConfigMap());
+
+		// Checker not pass and return empty result
+		final boolean updated = this.flinkKubeClient.checkAndUpdateConfigMap(
+			TESTING_CONFIG_MAP_NAME, c -> Optional.empty()).get();
+		assertThat(updated, is(false));
+
+		final Optional<KubernetesConfigMap> configMapOpt = this.flinkKubeClient.getConfigMap(TESTING_CONFIG_MAP_NAME);
+		assertThat(configMapOpt.isPresent(), is(true));
+		assertThat(configMapOpt.get().getData().get(TESTING_CONFIG_MAP_KEY), is(TESTING_CONFIG_MAP_VALUE));
+	}
+
+	@Test
+	public void testCheckAndUpdateConfigMapWhenConfigMapNotExist() {
+		try {
+			final CompletableFuture<Boolean> future = this.flinkKubeClient.checkAndUpdateConfigMap(
+				TESTING_CONFIG_MAP_NAME,
+				c -> Optional.empty());
+			future.get();
+			fail("CheckAndUpdateConfigMap should fail with an exception when the ConfigMap does not exist.");
+		} catch (Exception ex) {
+			final String errMsg = "Cannot retry checkAndUpdateConfigMap with configMap "
+				+ TESTING_CONFIG_MAP_NAME + " because it does not exist.";
+			assertThat(ex, FlinkMatchers.containsMessage(errMsg));
+			// Should not retry when ConfigMap does not exist.
+			assertThat(ex, FlinkMatchers.containsMessage(
+				"Stopped retrying the operation because the error is not retryable."));
+		}
+	}
+
+	@Test
+	public void testCheckAndUpdateConfigMapWhenReplaceConfigMapFailed() throws Exception {
+		final int configuredRetries =
+			flinkConfig.getInteger(KubernetesConfigOptions.KUBERNETES_TRANSACTIONAL_OPERATION_MAX_RETRIES);
+		final KubernetesConfigMap configMap = buildTestingConfigMap();
+		this.flinkKubeClient.createConfigMap(configMap).get();
+
+		mockReplaceConfigMapFailed(configMap.getInternalResource());
+
+		final AtomicInteger retries = new AtomicInteger(0);
+		try {
+			this.flinkKubeClient.checkAndUpdateConfigMap(TESTING_CONFIG_MAP_NAME, c -> {
+				retries.incrementAndGet();
+				return Optional.of(configMap);
+			}).get();
+			fail("CheckAndUpdateConfigMap should fail with exception when number of retries has been exhausted.");
+		} catch (Exception ex) {
+			assertThat(ex, FlinkMatchers.containsMessage("Could not complete the " +
+				"operation. Number of retries has been exhausted."));
+			assertThat(retries.get(), is(configuredRetries + 1));
+		}
+	}
+
+	private KubernetesConfigMap buildTestingConfigMap() {
+		final Map<String, String> data = new HashMap<>();
+		data.put(TESTING_CONFIG_MAP_KEY, TESTING_CONFIG_MAP_VALUE);
+		return new KubernetesConfigMap(new ConfigMapBuilder()
+			.withNewMetadata()
+			.withName(TESTING_CONFIG_MAP_NAME)
+			.withLabels(TESTING_LABELS)
+			.endMetadata()
+			.withData(data).build());
 	}
 }

@@ -18,10 +18,14 @@
 
 package org.apache.flink.runtime.clusterframework;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.resources.CPUResource;
 import org.apache.flink.configuration.MemorySize;
+import org.apache.flink.runtime.util.config.memory.CommonProcessMemorySpec;
+import org.apache.flink.runtime.util.config.memory.JvmMetaspaceAndOverhead;
+import org.apache.flink.runtime.util.config.memory.taskmanager.TaskExecutorFlinkMemory;
 
-import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * Describe the specifics of different resource dimensions of the TaskExecutor process.
@@ -73,26 +77,12 @@ import java.io.Serializable;
  *               └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
  * </pre>
  */
-public class TaskExecutorProcessSpec implements Serializable {
+public class TaskExecutorProcessSpec extends CommonProcessMemorySpec<TaskExecutorFlinkMemory> {
+	private static final long serialVersionUID = 1L;
 
 	private final CPUResource cpuCores;
 
-	private final MemorySize frameworkHeapSize;
-
-	private final MemorySize frameworkOffHeapMemorySize;
-
-	private final MemorySize taskHeapSize;
-
-	private final MemorySize taskOffHeapSize;
-
-	private final MemorySize networkMemSize;
-
-	private final MemorySize managedMemorySize;
-
-	private final MemorySize jvmMetaspaceSize;
-
-	private final MemorySize jvmOverheadSize;
-
+	@VisibleForTesting
 	public TaskExecutorProcessSpec(
 		CPUResource cpuCores,
 		MemorySize frameworkHeapSize,
@@ -104,81 +94,85 @@ public class TaskExecutorProcessSpec implements Serializable {
 		MemorySize jvmMetaspaceSize,
 		MemorySize jvmOverheadSize) {
 
+		this(
+			cpuCores,
+			new TaskExecutorFlinkMemory(
+				frameworkHeapSize,
+				frameworkOffHeapSize,
+				taskHeapSize,
+				taskOffHeapSize,
+				networkMemSize,
+				managedMemorySize),
+			new JvmMetaspaceAndOverhead(jvmMetaspaceSize, jvmOverheadSize));
+	}
+
+	protected TaskExecutorProcessSpec(
+		CPUResource cpuCores,
+		TaskExecutorFlinkMemory flinkMemory,
+		JvmMetaspaceAndOverhead jvmMetaspaceAndOverhead) {
+
+		super(flinkMemory, jvmMetaspaceAndOverhead);
 		this.cpuCores = cpuCores;
-		this.frameworkHeapSize = frameworkHeapSize;
-		this.frameworkOffHeapMemorySize = frameworkOffHeapSize;
-		this.taskHeapSize = taskHeapSize;
-		this.taskOffHeapSize = taskOffHeapSize;
-		this.networkMemSize = networkMemSize;
-		this.managedMemorySize = managedMemorySize;
-		this.jvmMetaspaceSize = jvmMetaspaceSize;
-		this.jvmOverheadSize = jvmOverheadSize;
 	}
 
 	public CPUResource getCpuCores() {
 		return cpuCores;
 	}
 
-	public MemorySize getFrameworkHeapSize() {
-		return frameworkHeapSize;
+	MemorySize getFrameworkHeapSize() {
+		return getFlinkMemory().getFrameworkHeap();
 	}
 
-	public MemorySize getFrameworkOffHeapMemorySize() {
-		return frameworkOffHeapMemorySize;
+	MemorySize getFrameworkOffHeapMemorySize() {
+		return getFlinkMemory().getFrameworkOffHeap();
 	}
 
 	public MemorySize getTaskHeapSize() {
-		return taskHeapSize;
+		return getFlinkMemory().getTaskHeap();
 	}
 
 	public MemorySize getTaskOffHeapSize() {
-		return taskOffHeapSize;
+		return getFlinkMemory().getTaskOffHeap();
 	}
 
 	public MemorySize getNetworkMemSize() {
-		return networkMemSize;
+		return getFlinkMemory().getNetwork();
 	}
 
 	public MemorySize getManagedMemorySize() {
-		return managedMemorySize;
+		return getFlinkMemory().getManaged();
 	}
 
-	public MemorySize getJvmMetaspaceSize() {
-		return jvmMetaspaceSize;
+	@Override
+	public boolean equals(Object obj) {
+		if (obj == this) {
+			return true;
+		} else if (obj instanceof TaskExecutorProcessSpec) {
+			TaskExecutorProcessSpec that = (TaskExecutorProcessSpec) obj;
+			return Objects.equals(this.cpuCores, that.cpuCores) &&
+				Objects.equals(this.getJvmMetaspaceAndOverhead(), that.getJvmMetaspaceAndOverhead()) &&
+				Objects.equals(this.getFlinkMemory(), that.getFlinkMemory());
+		}
+		return false;
 	}
 
-	public MemorySize getJvmOverheadSize() {
-		return jvmOverheadSize;
-	}
-
-	public MemorySize getTotalFlinkMemorySize() {
-		return frameworkHeapSize.add(frameworkOffHeapMemorySize).add(taskHeapSize).add(taskOffHeapSize).add(networkMemSize).add(getManagedMemorySize());
-	}
-
-	public MemorySize getTotalProcessMemorySize() {
-		return getTotalFlinkMemorySize().add(jvmMetaspaceSize).add(jvmOverheadSize);
-	}
-
-	public MemorySize getJvmHeapMemorySize() {
-		return frameworkHeapSize.add(taskHeapSize);
-	}
-
-	public MemorySize getJvmDirectMemorySize() {
-		return frameworkOffHeapMemorySize.add(taskOffHeapSize).add(networkMemSize);
+	@Override
+	public int hashCode() {
+		return Objects.hash(getJvmMetaspaceAndOverhead(), getFlinkMemory(), cpuCores);
 	}
 
 	@Override
 	public String toString() {
 		return "TaskExecutorProcessSpec {"
 			+ "cpuCores=" + cpuCores.getValue().doubleValue()
-			+ ", frameworkHeapSize=" + frameworkHeapSize.toHumanReadableString()
-			+ ", frameworkOffHeapSize=" + frameworkOffHeapMemorySize.toHumanReadableString()
-			+ ", taskHeapSize=" + taskHeapSize.toHumanReadableString()
-			+ ", taskOffHeapSize=" + taskOffHeapSize.toHumanReadableString()
-			+ ", networkMemSize=" + networkMemSize.toHumanReadableString()
-			+ ", managedMemorySize=" + managedMemorySize.toHumanReadableString()
-			+ ", jvmMetaspaceSize=" + jvmMetaspaceSize.toHumanReadableString()
-			+ ", jvmOverheadSize=" + jvmOverheadSize.toHumanReadableString()
-			+ "}";
+			+ ", frameworkHeapSize=" + getFrameworkHeapSize().toHumanReadableString()
+			+ ", frameworkOffHeapSize=" + getFrameworkOffHeapMemorySize().toHumanReadableString()
+			+ ", taskHeapSize=" + getTaskHeapSize().toHumanReadableString()
+			+ ", taskOffHeapSize=" + getTaskOffHeapSize().toHumanReadableString()
+			+ ", networkMemSize=" + getNetworkMemSize().toHumanReadableString()
+			+ ", managedMemorySize=" + getManagedMemorySize().toHumanReadableString()
+			+ ", jvmMetaspaceSize=" + getJvmMetaspaceSize().toHumanReadableString()
+			+ ", jvmOverheadSize=" + getJvmOverheadSize().toHumanReadableString()
+			+ '}';
 	}
 }

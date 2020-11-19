@@ -24,26 +24,18 @@ under the License.
 
 Flink附带了一个集成的交互式Python Shell。
 它既能够运行在本地启动的local模式，也能够运行在集群启动的cluster模式下。
-本地安装Flink，请看[本地安装](deployment/local.html)页面。
-您也可以从源码安装Flink，请看[从源码构建 Flink](../flinkDev/building.html)页面。
+本地安装Flink，请看[本地安装]({% link ops/deployment/local.zh.md %})页面。
+您也可以从源码安装Flink，请看[从源码构建 Flink]({% link flinkDev/building.zh.md %})页面。
 
-<span class="label label-info">注意</span> Python Shell会调用“python”命令。请执行以下命令以确认当前环境下的指令“python”指向Python 3.5及以上版本：
+<span class="label label-info">注意</span> Python Shell会调用“python”命令。关于Python执行环境的要求，请参考Python Table API[环境安装]({% link dev/python/installation.zh.md %})。
 
-{% highlight bash %}
-$ python --version
-# the version printed here must be 3.5+
-{% endhighlight %}
-
-<span class="label label-info">注意</span> 在Python Shell中使用Python UDF依赖apache-beam 2.19.0。 在以本地模式执行之前，执行以下命令以确认环境满足需求：
+你可以通过PyPi安装PyFlink，然后使用Python Shell:
 
 {% highlight bash %}
-$ python -m pip install apache-beam==2.19.0
-{% endhighlight %}
-
-为了使用Flink的Python Shell，你只需要在Flink的binary目录下执行:
-
-{% highlight bash %}
-bin/pyflink-shell.sh local
+# 安装 PyFlink
+$ python -m pip install apache-flink
+# 执行脚本
+$ pyflink-shell.sh local
 {% endhighlight %}
 
 关于如何在一个Cluster集群上运行Python shell，可以参考启动章节介绍。
@@ -83,8 +75,7 @@ bin/pyflink-shell.sh local
 ...         .field("c", DataTypes.STRING()))\
 ...     .create_temporary_table("stream_sink")
 >>> t.select("a + 1, b, c")\
-...     .insert_into("stream_sink")
->>> st_env.execute("stream_job")
+...     .execute_insert("stream_sink").wait()
 >>> # 如果作业运行在local模式, 你可以执行以下代码查看结果:
 >>> with open(sink_path, 'r') as f:
 ...     print(f.read())
@@ -115,8 +106,7 @@ bin/pyflink-shell.sh local
 ...         .field("c", DataTypes.STRING()))\
 ...     .create_temporary_table("batch_sink")
 >>> t.select("a + 1, b, c")\
-...     .insert_into("batch_sink")
->>> bt_env.execute("batch_job")
+...     .execute_insert("batch_sink").wait()
 >>> # 如果作业运行在local模式, 你可以执行以下代码查看结果:
 >>> with open(sink_path, 'r') as f:
 ...     print(f.read())
@@ -129,7 +119,7 @@ bin/pyflink-shell.sh local
 查看Python Shell提供的可选参数，可以使用:
 
 {% highlight bash %}
-bin/pyflink-shell.sh --help
+pyflink-shell.sh --help
 {% endhighlight %}
 
 ### Local
@@ -137,7 +127,7 @@ bin/pyflink-shell.sh --help
 Python Shell运行在local模式下，只需要执行:
 
 {% highlight bash %}
-bin/pyflink-shell.sh local
+pyflink-shell.sh local
 {% endhighlight %}
 
 
@@ -147,7 +137,7 @@ Python Shell运行在一个指定的JobManager上，通过关键字`remote`和�
 的地址和端口号来进行指定:
 
 {% highlight bash %}
-bin/pyflink-shell.sh remote <hostname> <portnumber>
+pyflink-shell.sh remote <hostname> <portnumber>
 {% endhighlight %}
 
 ### Yarn Python Shell cluster
@@ -157,7 +147,7 @@ Python Shell可以运行在YARN集群之上。Python shell在Yarn上部署一个
 例如，在一个部署了两个TaskManager的Yarn集群上运行Python Shell:
 
 {% highlight bash %}
-bin/pyflink-shell.sh yarn -n 2
+pyflink-shell.sh yarn -n 2
 {% endhighlight %}
 
 关于所有可选的参数，可以查看本页面底部的完整说明。
@@ -168,7 +158,7 @@ bin/pyflink-shell.sh yarn -n 2
 如果你已经通过Flink Yarn Session部署了一个Flink集群，能够通过以下的命令连接到这个集群:
 
 {% highlight bash %}
-bin/pyflink-shell.sh yarn
+pyflink-shell.sh yarn
 {% endhighlight %}
 
 

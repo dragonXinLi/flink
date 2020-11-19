@@ -20,6 +20,8 @@ package org.apache.flink.kubernetes.kubeclient.decorators;
 
 import org.apache.flink.kubernetes.kubeclient.FlinkPod;
 import org.apache.flink.kubernetes.kubeclient.parameters.KubernetesJobManagerParameters;
+import org.apache.flink.kubernetes.kubeclient.resources.KubernetesToleration;
+import org.apache.flink.kubernetes.utils.Constants;
 import org.apache.flink.kubernetes.utils.KubernetesUtils;
 
 import io.fabric8.kubernetes.api.model.Container;
@@ -34,6 +36,7 @@ import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.fabric8.kubernetes.api.model.ResourceRequirements;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -59,10 +62,15 @@ public class InitJobManagerDecorator extends AbstractKubernetesStepDecorator {
 			.withApiVersion(API_VERSION)
 			.editOrNewMetadata()
 				.withLabels(kubernetesJobManagerParameters.getLabels())
+				.withAnnotations(kubernetesJobManagerParameters.getAnnotations())
 				.endMetadata()
 			.editOrNewSpec()
 				.withServiceAccountName(kubernetesJobManagerParameters.getServiceAccount())
 				.withImagePullSecrets(kubernetesJobManagerParameters.getImagePullSecrets())
+				.withNodeSelector(kubernetesJobManagerParameters.getNodeSelector())
+				.withTolerations(kubernetesJobManagerParameters.getTolerations().stream()
+					.map(e -> KubernetesToleration.fromMap(e).getInternalResource())
+					.collect(Collectors.toList()))
 				.endSpec()
 			.build();
 
@@ -77,12 +85,13 @@ public class InitJobManagerDecorator extends AbstractKubernetesStepDecorator {
 	private Container decorateMainContainer(Container container) {
 		final ResourceRequirements requirements = KubernetesUtils.getResourceRequirements(
 				kubernetesJobManagerParameters.getJobManagerMemoryMB(),
-				kubernetesJobManagerParameters.getJobManagerCPU());
+				kubernetesJobManagerParameters.getJobManagerCPU(),
+				Collections.emptyMap());
 
 		return new ContainerBuilder(container)
 				.withName(kubernetesJobManagerParameters.getJobManagerMainContainerName())
 				.withImage(kubernetesJobManagerParameters.getImage())
-				.withImagePullPolicy(kubernetesJobManagerParameters.getImagePullPolicy())
+				.withImagePullPolicy(kubernetesJobManagerParameters.getImagePullPolicy().name())
 				.withResources(requirements)
 				.withPorts(getContainerPorts())
 				.withEnv(getCustomizedEnvs())
@@ -98,13 +107,16 @@ public class InitJobManagerDecorator extends AbstractKubernetesStepDecorator {
 	private List<ContainerPort> getContainerPorts() {
 		return Arrays.asList(
 			new ContainerPortBuilder()
+				.withName(Constants.REST_PORT_NAME)
 				.withContainerPort(kubernetesJobManagerParameters.getRestPort())
 				.build(),
 			new ContainerPortBuilder()
+				.withName(Constants.JOB_MANAGER_RPC_PORT_NAME)
 				.withContainerPort(kubernetesJobManagerParameters.getRPCPort())
 				.build(),
-			new ContainerPortBuilder().
-				withContainerPort(kubernetesJobManagerParameters.getBlobServerPort())
+			new ContainerPortBuilder()
+				.withName(Constants.BLOB_SERVER_PORT_NAME)
+				.withContainerPort(kubernetesJobManagerParameters.getBlobServerPort())
 				.build());
 	}
 

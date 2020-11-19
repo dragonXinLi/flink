@@ -19,6 +19,7 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.checkpoint.CheckpointCoordinatorTestingUtils.CheckpointCoordinatorBuilder;
 import org.apache.flink.runtime.concurrent.ManuallyTriggeredScheduledExecutor;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -26,6 +27,7 @@ import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.executiongraph.ExecutionJobVertex;
 import org.apache.flink.runtime.executiongraph.ExecutionVertex;
+import org.apache.flink.runtime.executiongraph.IntermediateResult;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.messages.checkpoint.AcknowledgeCheckpoint;
@@ -49,6 +51,8 @@ import java.util.Objects;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -111,8 +115,7 @@ public class CheckpointStateRestoreTest {
 					.build();
 
 			// create ourselves a checkpoint with state
-			final long timestamp = 34623786L;
-			coord.triggerCheckpoint(timestamp, false);
+			coord.triggerCheckpoint(false);
 			manuallyTriggeredScheduledExecutor.triggerAll();
 
 			PendingCheckpoint pending = coord.getPendingCheckpoints().values().iterator().next();
@@ -122,11 +125,7 @@ public class CheckpointStateRestoreTest {
 
 			subtaskStates.putSubtaskStateByOperatorID(
 				OperatorID.fromJobVertexID(statefulId),
-				new OperatorSubtaskState(
-					StateObjectCollection.empty(),
-					StateObjectCollection.empty(),
-					StateObjectCollection.singleton(serializedKeyGroupStates),
-					StateObjectCollection.empty()));
+				OperatorSubtaskState.builder().setManagedKeyedState(serializedKeyGroupStates).build());
 
 			coord.receiveAcknowledgeMessage(new AcknowledgeCheckpoint(jid, statefulExec1.getAttemptId(), checkpointId, new CheckpointMetrics(), subtaskStates), TASK_MANAGER_LOCATION_INFO);
 			coord.receiveAcknowledgeMessage(new AcknowledgeCheckpoint(jid, statefulExec2.getAttemptId(), checkpointId, new CheckpointMetrics(), subtaskStates), TASK_MANAGER_LOCATION_INFO);
@@ -138,7 +137,7 @@ public class CheckpointStateRestoreTest {
 			assertEquals(0, coord.getNumberOfPendingCheckpoints());
 
 			// let the coordinator inject the state
-			coord.restoreLatestCheckpointedState(tasks, true, false);
+			assertTrue(coord.restoreLatestCheckpointedStateToAll(tasks, false));
 
 			// verify that each stateful vertex got the state
 
@@ -177,13 +176,8 @@ public class CheckpointStateRestoreTest {
 				new CheckpointCoordinatorBuilder()
 					.build();
 
-			try {
-				coord.restoreLatestCheckpointedState(Collections.emptySet(), true, false);
-				fail("this should throw an exception");
-			}
-			catch (IllegalStateException e) {
-				// expected
-			}
+			final boolean restored = coord.restoreLatestCheckpointedStateToAll(Collections.emptySet(), false);
+			assertFalse(restored);
 		}
 		catch (Exception e) {
 			e.printStackTrace();
@@ -227,9 +221,9 @@ public class CheckpointStateRestoreTest {
 		Map<OperatorID, OperatorState> checkpointTaskStates = new HashMap<>();
 		{
 			OperatorState taskState = new OperatorState(operatorId1, 3, 3);
-			taskState.putState(0, new OperatorSubtaskState());
-			taskState.putState(1, new OperatorSubtaskState());
-			taskState.putState(2, new OperatorSubtaskState());
+			taskState.putState(0, OperatorSubtaskState.builder().build());
+			taskState.putState(1, OperatorSubtaskState.builder().build());
+			taskState.putState(2, OperatorSubtaskState.builder().build());
 
 			checkpointTaskStates.put(operatorId1, taskState);
 		}
@@ -241,12 +235,14 @@ public class CheckpointStateRestoreTest {
 			new HashMap<>(checkpointTaskStates),
 			Collections.<MasterState>emptyList(),
 			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
-			new TestCompletedCheckpointStorageLocation());
+			new TestCompletedCheckpointStorageLocation()
+		);
 
-		coord.getCheckpointStore().addCheckpoint(checkpoint);
+		coord.getCheckpointStore().addCheckpoint(checkpoint, new CheckpointsCleaner(), () -> {
+		});
 
-		coord.restoreLatestCheckpointedState(tasks, true, false);
-		coord.restoreLatestCheckpointedState(tasks, true, true);
+		assertTrue(coord.restoreLatestCheckpointedStateToAll(tasks, false));
+		assertTrue(coord.restoreLatestCheckpointedStateToAll(tasks, true));
 
 		// --- (3) JobVertex missing for task state that is part of the checkpoint ---
 		JobVertexID newJobVertexID = new JobVertexID();
@@ -255,7 +251,7 @@ public class CheckpointStateRestoreTest {
 		// There is no task for this
 		{
 			OperatorState taskState = new OperatorState(newOperatorID, 1, 1);
-			taskState.putState(0, new OperatorSubtaskState());
+			taskState.putState(0, OperatorSubtaskState.builder().build());
 
 			checkpointTaskStates.put(newOperatorID, taskState);
 		}
@@ -268,16 +264,19 @@ public class CheckpointStateRestoreTest {
 			new HashMap<>(checkpointTaskStates),
 			Collections.<MasterState>emptyList(),
 			CheckpointProperties.forCheckpoint(CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION),
-			new TestCompletedCheckpointStorageLocation());
+			new TestCompletedCheckpointStorageLocation()
+		);
 
-		coord.getCheckpointStore().addCheckpoint(checkpoint);
+		coord.getCheckpointStore().addCheckpoint(checkpoint, new CheckpointsCleaner(), () -> {
+		});
 
 		// (i) Allow non restored state (should succeed)
-		coord.restoreLatestCheckpointedState(tasks, true, true);
+		final boolean restored = coord.restoreLatestCheckpointedStateToAll(tasks, true);
+		assertTrue(restored);
 
 		// (ii) Don't allow non restored state (should fail)
 		try {
-			coord.restoreLatestCheckpointedState(tasks, true, false);
+			coord.restoreLatestCheckpointedStateToAll(tasks, false);
 			fail("Did not throw the expected Exception.");
 		} catch (IllegalStateException ignored) {
 		}
@@ -312,8 +311,8 @@ public class CheckpointStateRestoreTest {
 		when(vertex.getMaxParallelism()).thenReturn(vertices.length);
 		when(vertex.getJobVertexId()).thenReturn(id);
 		when(vertex.getTaskVertices()).thenReturn(vertices);
-		when(vertex.getOperatorIDs()).thenReturn(Collections.singletonList(OperatorID.fromJobVertexID(id)));
-		when(vertex.getUserDefinedOperatorIDs()).thenReturn(Collections.<OperatorID>singletonList(null));
+		when(vertex.getOperatorIDs()).thenReturn(Collections.singletonList(OperatorIDPair.generatedIDOnly(OperatorID.fromJobVertexID(id))));
+		when(vertex.getProducedDataSets()).thenReturn(new IntermediateResult[0]);
 
 		for (ExecutionVertex v : vertices) {
 			when(v.getJobVertex()).thenReturn(vertex);

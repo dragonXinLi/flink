@@ -32,7 +32,8 @@ import io.fabric8.kubernetes.api.model.LocalObjectReference;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.api.model.ResourceRequirements;
-import org.junit.Before;
+import io.fabric8.kubernetes.api.model.Toleration;
+import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -41,7 +42,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -51,15 +55,34 @@ public class InitJobManagerDecoratorTest extends KubernetesJobManagerTestBase {
 
 	private static final String SERVICE_ACCOUNT_NAME = "service-test";
 	private static final List<String> IMAGE_PULL_SECRETS = Arrays.asList("s1", "s2", "s3");
+	private static final Map<String, String> ANNOTATIONS = new HashMap<String, String>() {
+		{
+			put("a1", "v1");
+			put("a2", "v2");
+		}
+	};
+	private static final String TOLERATION_STRING = "key:key1,operator:Equal,value:value1,effect:NoSchedule;" +
+		"KEY:key2,operator:Exists,Effect:NoExecute,tolerationSeconds:6000";
+	private static final List<Toleration> TOLERATION = Arrays.asList(
+		new Toleration("NoSchedule", "key1", "Equal", null, "value1"),
+		new Toleration("NoExecute", "key2", "Exists", 6000L, null));
 
 	private Pod resultPod;
 	private Container resultMainContainer;
 
-	@Before
-	public void setup() throws Exception {
-		super.setup();
+	@Override
+	protected void setupFlinkConfig() {
+		super.setupFlinkConfig();
+
 		this.flinkConfig.set(KubernetesConfigOptions.JOB_MANAGER_SERVICE_ACCOUNT, SERVICE_ACCOUNT_NAME);
 		this.flinkConfig.set(KubernetesConfigOptions.CONTAINER_IMAGE_PULL_SECRETS, IMAGE_PULL_SECRETS);
+		this.flinkConfig.set(KubernetesConfigOptions.JOB_MANAGER_ANNOTATIONS, ANNOTATIONS);
+		this.flinkConfig.setString(KubernetesConfigOptions.JOB_MANAGER_TOLERATIONS.key(), TOLERATION_STRING);
+	}
+
+	@Override
+	protected void onSetup() throws Exception {
+		super.onSetup();
 
 		final InitJobManagerDecorator initJobManagerDecorator =
 			new InitJobManagerDecorator(this.kubernetesJobManagerParameters);
@@ -82,7 +105,7 @@ public class InitJobManagerDecoratorTest extends KubernetesJobManagerTestBase {
 	@Test
 	public void testMainContainerImage() {
 		assertEquals(CONTAINER_IMAGE, this.resultMainContainer.getImage());
-		assertEquals(CONTAINER_IMAGE_PULL_POLICY, this.resultMainContainer.getImagePullPolicy());
+		assertEquals(CONTAINER_IMAGE_PULL_POLICY.name(), this.resultMainContainer.getImagePullPolicy());
 	}
 
 	@Test
@@ -91,23 +114,26 @@ public class InitJobManagerDecoratorTest extends KubernetesJobManagerTestBase {
 
 		final Map<String, Quantity> requests = resourceRequirements.getRequests();
 		assertEquals(Double.toString(JOB_MANAGER_CPU), requests.get("cpu").getAmount());
-		assertEquals(JOB_MANAGER_MEMORY + "Mi", requests.get("memory").getAmount());
+		assertEquals(String.valueOf(JOB_MANAGER_MEMORY), requests.get("memory").getAmount());
 
 		final Map<String, Quantity> limits = resourceRequirements.getLimits();
 		assertEquals(Double.toString(JOB_MANAGER_CPU), limits.get("cpu").getAmount());
-		assertEquals(JOB_MANAGER_MEMORY + "Mi", limits.get("memory").getAmount());
+		assertEquals(String.valueOf(JOB_MANAGER_MEMORY), limits.get("memory").getAmount());
 	}
 
 	@Test
 	public void testMainContainerPorts() {
 		final List<ContainerPort> expectedContainerPorts = Arrays.asList(
 			new ContainerPortBuilder()
+				.withName(Constants.REST_PORT_NAME)
 				.withContainerPort(REST_PORT)
 			.build(),
 			new ContainerPortBuilder()
+				.withName(Constants.JOB_MANAGER_RPC_PORT_NAME)
 				.withContainerPort(RPC_PORT)
 			.build(),
 			new ContainerPortBuilder()
+				.withName(Constants.BLOB_SERVER_PORT_NAME)
 				.withContainerPort(BLOB_SERVER_PORT)
 			.build());
 
@@ -131,8 +157,15 @@ public class InitJobManagerDecoratorTest extends KubernetesJobManagerTestBase {
 	public void testPodLabels() {
 		final Map<String, String> expectedLabels = new HashMap<>(getCommonLabels());
 		expectedLabels.put(Constants.LABEL_COMPONENT_KEY, Constants.LABEL_COMPONENT_JOB_MANAGER);
+		expectedLabels.putAll(userLabels);
 
 		assertEquals(expectedLabels, this.resultPod.getMetadata().getLabels());
+	}
+
+	@Test
+	public void testPodAnnotations() {
+		final Map<String, String> resultAnnotations = kubernetesJobManagerParameters.getAnnotations();
+		assertThat(resultAnnotations, is(equalTo(ANNOTATIONS)));
 	}
 
 	@Test
@@ -148,5 +181,15 @@ public class InitJobManagerDecoratorTest extends KubernetesJobManagerTestBase {
 			.collect(Collectors.toList());
 
 		assertEquals(IMAGE_PULL_SECRETS, resultSecrets);
+	}
+
+	@Test
+	public void testNodeSelector() {
+		assertThat(this.resultPod.getSpec().getNodeSelector(), is(equalTo(nodeSelector)));
+	}
+
+	@Test
+	public void testPodTolerations() {
+		assertThat(this.resultPod.getSpec().getTolerations(), Matchers.containsInAnyOrder(TOLERATION.toArray()));
 	}
 }

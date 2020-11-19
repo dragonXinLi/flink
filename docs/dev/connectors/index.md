@@ -1,9 +1,9 @@
 ---
-title: "Streaming Connectors"
+title: "DataStream Connectors"
 nav-id: connectors
-nav-title: Connectors
-nav-parent_id: streaming
-nav-pos: 30
+nav-title: DataStream Connectors
+nav-parent_id: connectors-root
+nav-pos: 1
 nav-show_overview: true
 ---
 <!--
@@ -43,11 +43,13 @@ Connectors provide code for interfacing with various third-party systems. Curren
  * [Apache Cassandra](cassandra.html) (sink)
  * [Amazon Kinesis Streams](kinesis.html) (source/sink)
  * [Elasticsearch](elasticsearch.html) (sink)
- * [Hadoop FileSystem](filesystem_sink.html) (sink)
+ * [FileSystem (Hadoop included) - Streaming only](streamfile_sink.html) (sink)
+ * [FileSystem (Hadoop included) - Streaming and Batch](file_sink.html) (sink)
  * [RabbitMQ](rabbitmq.html) (source/sink)
  * [Apache NiFi](nifi.html) (source/sink)
  * [Twitter Streaming API](twitter.html) (source)
  * [Google PubSub](pubsub.html) (source/sink)
+ * [JDBC](jdbc.html) (sink)
 
 Keep in mind that to use one of these connectors in an application, additional third party
 components are usually required, e.g. servers for the data stores or message queues.

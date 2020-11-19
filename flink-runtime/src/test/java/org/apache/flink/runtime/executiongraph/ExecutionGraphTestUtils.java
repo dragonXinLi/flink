@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.api.common.time.Time;
@@ -38,7 +37,7 @@ import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.runtime.jobmanager.slots.TaskManagerGateway;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotProvider;
-import org.apache.flink.runtime.taskmanager.TaskManagerLocation;
+import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.testingUtils.TestingUtils;
 import org.apache.flink.runtime.testtasks.NoOpInvokable;
 import org.apache.flink.runtime.testutils.DirectScheduledExecutorService;
@@ -47,10 +46,8 @@ import javax.annotation.Nullable;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.Random;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
@@ -308,7 +305,7 @@ public class ExecutionGraphTestUtils {
 	public static ExecutionGraph createSimpleTestGraph(RestartStrategy restartStrategy) throws Exception {
 		JobVertex vertex = createNoOpVertex(10);
 
-		return createSimpleTestGraph(new JobID(), new SimpleAckingTaskManagerGateway(), restartStrategy, vertex);
+		return createSimpleTestGraph(new SimpleAckingTaskManagerGateway(), restartStrategy, vertex);
 	}
 
 	/**
@@ -316,15 +313,14 @@ public class ExecutionGraphTestUtils {
 	 *
 	 * <p>The execution graph uses {@link NoRestartStrategy} as the restart strategy.
 	 */
-	public static ExecutionGraph createSimpleTestGraph(JobID jid, JobVertex... vertices) throws Exception {
-		return createSimpleTestGraph(jid, new SimpleAckingTaskManagerGateway(), new NoRestartStrategy(), vertices);
+	public static ExecutionGraph createSimpleTestGraph(JobVertex... vertices) throws Exception {
+		return createSimpleTestGraph(new SimpleAckingTaskManagerGateway(), new NoRestartStrategy(), vertices);
 	}
 
 	/**
 	 * Creates an execution graph containing the given vertices and the given restart strategy.
 	 */
 	public static ExecutionGraph createSimpleTestGraph(
-			JobID jid,
 			TaskManagerGateway taskManagerGateway,
 			RestartStrategy restartStrategy,
 			JobVertex... vertices) throws Exception {
@@ -334,39 +330,35 @@ public class ExecutionGraphTestUtils {
 			numSlotsNeeded += vertex.getParallelism();
 		}
 
-		SlotProvider slotProvider = new SimpleSlotProvider(jid, numSlotsNeeded, taskManagerGateway);
+		SlotProvider slotProvider = new SimpleSlotProvider(numSlotsNeeded, taskManagerGateway);
 
-		return createSimpleTestGraph(jid, slotProvider, restartStrategy, vertices);
+		return createSimpleTestGraph(slotProvider, restartStrategy, vertices);
 	}
 
 	public static ExecutionGraph createSimpleTestGraph(
-			JobID jid,
 			SlotProvider slotProvider,
 			RestartStrategy restartStrategy,
 			JobVertex... vertices) throws Exception {
 
-		return createExecutionGraph(jid, slotProvider, restartStrategy, TestingUtils.defaultExecutor(), vertices);
+		return createExecutionGraph(slotProvider, restartStrategy, TestingUtils.defaultExecutor(), vertices);
 	}
 
 	public static ExecutionGraph createExecutionGraph(
-			JobID jid,
 			SlotProvider slotProvider,
 			RestartStrategy restartStrategy,
 			ScheduledExecutorService executor,
 			JobVertex... vertices) throws Exception {
 
-			return createExecutionGraph(jid, slotProvider, restartStrategy, executor, Time.seconds(10L), vertices);
+			return createExecutionGraph(slotProvider, restartStrategy, executor, Time.seconds(10L), vertices);
 	}
 
 	public static ExecutionGraph createExecutionGraph(
-			JobID jid,
 			SlotProvider slotProvider,
 			RestartStrategy restartStrategy,
 			ScheduledExecutorService executor,
 			Time timeout,
 			JobVertex... vertices) throws Exception {
 
-		checkNotNull(jid);
 		checkNotNull(restartStrategy);
 		checkNotNull(vertices);
 		checkNotNull(timeout);
@@ -397,6 +389,10 @@ public class ExecutionGraphTestUtils {
 	// ------------------------------------------------------------------------
 	//  utility mocking methods
 	// ------------------------------------------------------------------------
+
+	public static ExecutionVertexID createRandomExecutionVertexId() {
+		return new ExecutionVertexID(new JobVertexID(), new Random().nextInt(Integer.MAX_VALUE));
+	}
 
 	public static JobVertex createJobVertex(String task1, int numTasks, Class<NoOpInvokable> invokable) {
 		JobVertex groupVertex = new JobVertex(task1);
@@ -433,7 +429,19 @@ public class ExecutionGraphTestUtils {
 			ajv.setSlotSharingGroup(slotSharingGroup);
 		}
 
-		JobGraph jobGraph = new JobGraph(ajv);
+		return getExecutionJobVertex(ajv, executor, scheduleMode);
+	}
+
+	public static ExecutionJobVertex getExecutionJobVertex(JobVertex jobVertex) throws Exception {
+		return getExecutionJobVertex(jobVertex, new DirectScheduledExecutorService(), ScheduleMode.LAZY_FROM_SOURCES);
+	}
+
+	public static ExecutionJobVertex getExecutionJobVertex(
+			JobVertex jobVertex,
+			ScheduledExecutorService executor,
+			ScheduleMode scheduleMode) throws Exception {
+
+		JobGraph jobGraph = new JobGraph(jobVertex);
 		jobGraph.setScheduleMode(scheduleMode);
 
 		ExecutionGraph graph = TestingExecutionGraphBuilder
@@ -445,39 +453,20 @@ public class ExecutionGraphTestUtils {
 
 		graph.start(ComponentMainThreadExecutorServiceAdapter.forMainThread());
 
-		return new ExecutionJobVertex(graph, ajv, 1, AkkaUtils.getDefaultTimeout());
+		return graph.getJobVertex(jobVertex.getID());
 	}
 
 	public static ExecutionJobVertex getExecutionJobVertex(JobVertexID id) throws Exception {
 		return getExecutionJobVertex(id, new DirectScheduledExecutorService());
 	}
 
+	public static ExecutionVertex getExecutionVertex() throws Exception {
+		return getExecutionJobVertex(new JobVertexID(), new DirectScheduledExecutorService()).getTaskVertices()[0];
+	}
+
 	public static Execution getExecution() throws Exception {
 		final ExecutionJobVertex ejv = getExecutionJobVertex(new JobVertexID());
 		return ejv.getTaskVertices()[0].getCurrentExecutionAttempt();
-	}
-
-	public static Execution getExecution(final TaskManagerLocation... preferredLocations) throws Exception {
-		return getExecution(mapToPreferredLocationFutures(preferredLocations));
-	}
-
-	private static Collection<CompletableFuture<TaskManagerLocation>> mapToPreferredLocationFutures(
-			final TaskManagerLocation... preferredLocations) {
-
-		final Collection<CompletableFuture<TaskManagerLocation>> preferredLocationFutures = new ArrayList<>();
-		for (TaskManagerLocation preferredLocation : preferredLocations) {
-			preferredLocationFutures.add(CompletableFuture.completedFuture(preferredLocation));
-		}
-		return preferredLocationFutures;
-	}
-
-	public static Execution getExecution(
-			final Collection<CompletableFuture<TaskManagerLocation>> preferredLocationFutures) throws Exception {
-
-		final ExecutionJobVertex ejv = getExecutionJobVertex(new JobVertexID());
-		final TestExecutionVertex ev = new TestExecutionVertex(ejv, 0, new IntermediateResult[0], DEFAULT_TIMEOUT);
-		ev.setPreferredLocationFutures(preferredLocationFutures);
-		return ev.getCurrentExecutionAttempt();
 	}
 
 	public static Execution getExecution(
@@ -486,33 +475,14 @@ public class ExecutionGraphTestUtils {
 			final int numTasks,
 			final SlotSharingGroup slotSharingGroup) throws Exception {
 
-		return getExecution(jid, subtaskIndex, numTasks, slotSharingGroup, null);
-	}
-
-	public static Execution getExecution(
-			final JobVertexID jid,
-			final int subtaskIndex,
-			final int numTasks,
-			final SlotSharingGroup slotSharingGroup,
-			@Nullable final TaskManagerLocation... locations) throws Exception {
-
 		final ExecutionJobVertex ejv = getExecutionJobVertex(
 			jid,
 			numTasks,
 			slotSharingGroup,
 			new DirectScheduledExecutorService(),
 			ScheduleMode.LAZY_FROM_SOURCES);
-		final TestExecutionVertex ev = new TestExecutionVertex(
-			ejv,
-			subtaskIndex,
-			new IntermediateResult[0],
-			DEFAULT_TIMEOUT);
 
-		if (locations != null) {
-			ev.setPreferredLocationFutures(mapToPreferredLocationFutures(locations));
-		}
-
-		return ev.getCurrentExecutionAttempt();
+		return ejv.getTaskVertices()[subtaskIndex].getCurrentExecutionAttempt();
 	}
 
 	// ------------------------------------------------------------------------
