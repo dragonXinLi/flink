@@ -47,9 +47,6 @@ key will fall into the same partition.
 Dependencies
 ------------
 
-In order to set up the upsert-kafka connector, the following table provide dependency information for
-both projects using a build automation tool (such as Maven or SBT) and SQL Client with SQL JAR bundles.
-
 {% assign connector = site.data.sql-connectors['upsert-kafka'] %}
 {% include sql-connector-download-table.html
     connector=connector
@@ -103,6 +100,12 @@ GROUP BY region;
 </div>
 <span class="label label-danger">Attention</span> Make sure to define the primary key in the DDL.
 
+Available Metadata
+------------------
+
+See the [regular Kafka connector]({% link dev/connectors/kafka.md %}#available-metadata) for a list
+of all available metadata fields.
+
 Connector Options
 ----------------
 
@@ -143,10 +146,24 @@ Connector Options
       <td>required</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>String</td>
-      <td>The format used to deserialize and serialize the key part of the Kafka messages. The key part
-      fields are specified by the PRIMARY KEY syntax. The supported formats include <code>'csv'</code>,
-      <code>'json'</code>, <code>'avro'</code>. Please refer to <a href="{% link dev/table/connectors/formats/index.md %}">Formats</a>
-      page for more details and more format options.
+      <td><p>The format used to deserialize and serialize the key part of Kafka messages.
+      Please refer to the <a href="{% link dev/table/connectors/formats/index.md %}">formats</a> page
+      for more details and more format options.</p>
+      <span class="label label-danger">Attention</span> Compared to the regular Kafka connector, the
+      key fields are specified by the <code>PRIMARY KEY</code> syntax.
+      </td>
+    </tr>
+    <tr>
+      <td><h5>key.fields-prefix</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>Defines a custom prefix for all fields of the key format to avoid name clashes with fields
+        of the value format. By default, the prefix is empty. If a custom prefix is defined, both the
+        table schema and <code>'key.fields'</code> will work with prefixed names. When constructing the
+        data type of the key format, the prefix will be removed and the non-prefixed names will be used
+        within the key format. Please note that this option requires that <code>'value.fields-include'</code>
+        must be set to <code>'EXCEPT_KEY'</code>.
       </td>
     </tr>
     <tr>
@@ -154,22 +171,20 @@ Connector Options
       <td>required</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>String</td>
-      <td>The format used to deserialize and serialize the value part of the Kafka messages.
-      The supported formats include <code>'csv'</code>, <code>'json'</code>, <code>'avro'</code>.
-      Please refer to <a href="{% link dev/table/connectors/formats/index.md %}">Formats</a> page for more details and more format options.
+      <td>The format used to deserialize and serialize the value part of Kafka messages.
+      Please refer to the <a href="{% link dev/table/connectors/formats/index.md %}">formats</a> page
+      for more details and more format options.
       </td>
     </tr>
     <tr>
-       <td><h5>value.fields-include</h5></td>
-       <td>required</td>
-       <td style="word-wrap: break-word;"><code>'ALL'</code></td>
-       <td>String</td>
-       <td>Controls which fields should end up in the value as well. Available values:
-       <ul>
-         <li><code>ALL</code>: the value part of the record contains all fields of the schema, even if they are part of the key.</li>
-         <li><code>EXCEPT_KEY</code>: the value part of the record contains all fields of the schema except the key fields.</li>
-       </ul>
-       </td>
+      <td><h5>value.fields-include</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">ALL</td>
+      <td><p>Enum</p>Possible values: [ALL, EXCEPT_KEY]</td>
+      <td>Defines a strategy how to deal with key columns in the data type of the value format. By
+        default, <code>'ALL'</code> physical columns of the table schema will be included in the value
+        format which means that key columns appear in the data type for both the key and value format.
+      </td>
     </tr>
     <tr>
       <td><h5>sink.parallelism</h5></td>
@@ -183,6 +198,39 @@ Connector Options
 
 Features
 ----------------
+
+### Key and Value Formats
+
+See the [regular Kafka connector]({% link dev/connectors/kafka.md %}#key-and-value-formats) for more
+explanation around key and value formats. However, note that this connector requires both a key and
+value format where the key fields are derived from the `PRIMARY KEY` constraint.
+
+The following example shows how to specify and configure key and value formats. The format options are
+prefixed with either the `'key'` or `'value'` plus format identifier.
+
+<div class="codetabs" markdown="1">
+<div data-lang="SQL" markdown="1">
+{% highlight sql %}
+CREATE TABLE KafkaTable (
+  `ts` TIMESTAMP(3) METADATA FROM 'timestamp',
+  `user_id` BIGINT,
+  `item_id` BIGINT,
+  `behavior` STRING,
+  PRIMARY KEY (`user_id`) NOT ENFORCED
+) WITH (
+  'connector' = 'upsert-kafka',
+  ...
+
+  'key.format' = 'json',
+  'key.json.ignore-parse-errors' = 'true',
+
+  'value.format' = 'json',
+  'value.json.fail-on-missing-field' = 'false',
+  'value.fields-include' = 'EXCEPT_KEY'
+)
+{% endhighlight %}
+</div>
+</div>
 
 ### Primary Key Constraints
 
@@ -199,13 +247,25 @@ the query is executed with [checkpointing enabled]({% link dev/stream/state/chec
 This means, Flink may write duplicate records with the same key into the Kafka topic. But as the
 connector is working in the upsert mode, the last record on the same key will take effect when
 reading back as a source. Therefore, the upsert-kafka connector achieves idempotent writes just like
-the [HBase sink]({{ site.baseurl }}/dev/table/connectors/hbase.html).
+the [HBase sink]({% link dev/table/connectors/hbase.md %}).
+
+### Source Per-Partition Watermarks
+
+Flink supports to emit per-partition watermarks for Upsert Kafka. Watermarks are generated inside the Kafka
+consumer. The per-partition watermarks are merged in the same way as watermarks are merged during streaming
+shuffles. The output watermark of the source is determined by the minimum watermark among the partitions
+it reads. If some partitions in the topics are idle, the watermark generator will not advance. You can
+alleviate this problem by setting the [`'table.exec.source.idle-timeout'`]({% link dev/table/config.md %}#table-exec-source-idle-timeout)
+option in the table configuration.
+
+Please refer to [Kafka watermark strategies]({% link dev/event_timestamps_watermarks.md %}#watermark-strategies-and-the-kafka-connector)
+for more details.
 
 Data Type Mapping
 ----------------
 
 Upsert Kafka stores message keys and values as bytes, so Upsert Kafka doesn't have schema or data types.
-The messages are deserialized and serialized by formats, e.g. csv, json, avro. Thus, the data type mapping
+The messages are serialized and deserialized by formats, e.g. csv, json, avro. Thus, the data type mapping
 is determined by specific formats. Please refer to [Formats]({% link dev/table/connectors/formats/index.md %})
 pages for more details.
 

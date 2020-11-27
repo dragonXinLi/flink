@@ -165,7 +165,7 @@ SELECT 语句或者 VALUES 语句可以通过 `TableEnvironment.executeSql()` �
 `TableResult.collect()` 方法返回一个可以关闭的行迭代器。除非所有的数据都被收集到本地，否则一个查询作业永远不会结束。所以我们应该通过 `CloseableIterator#close()` 方法主动地关闭作业以防止资源泄露。
 我们还可以通过 `TableResult.print()` 方法将查询结果打印到本地控制台。`TableResult` 中的结果数据只能被访问一次，因此一个 `TableResult` 实例中，`collect()` 方法和 `print()` 方法不能被同时使用。
 
-`TableResult.collect()` 与 `TableResult.print()` 的行为在不同的 checkpointing 模式下略有不同（流作业开启 checkpointing 的方法可参考 <a href="{{ site.baseurl }}/zh/ops/config.html#checkpointing">checkpointing 配置</a>）。
+`TableResult.collect()` 与 `TableResult.print()` 的行为在不同的 checkpointing 模式下略有不同（流作业开启 checkpointing 的方法可参考 <a href="{{ site.baseurl }}/zh/deployment/config.html#checkpointing">checkpointing 配置</a>）。
 * 对于批作业或没有配置任何 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 既不保证精确一次的数据交付、也不保证至少一次的数据交付。查询结果在产生后可被客户端即刻访问，但作业失败并重启时将会报错。
 * 对于配置了精准一次 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 保证端到端精确一次的数据交付。一条结果数据只有在其对应的 checkpointing 完成后才能在客户端被访问。
 * 对于配置了至少一次 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 保证端到端至少一次的数据交付。查询结果在产生后可被客户端即刻访问，但同一条结果可能被多次传递给客户端。
@@ -178,7 +178,7 @@ SELECT 语句或者 VALUES 语句可以通过 `TableEnvironment.execute_sql()` �
 `TableResult.collect()` 方法返回一个可以关闭的行迭代器。除非所有的数据都被收集到本地，否则一个查询作业永远不会结束。所以我们应该通过 `CloseableIterator#close()` 方法主动地关闭作业以防止资源泄露。
 我们还可以通过 `TableResult.print()` 方法将查询结果打印到本地控制台。`TableResult` 中的结果数据只能被访问一次，因此一个 `TableResult` 实例中，`collect()` 方法和 `print()` 方法不能被同时使用。
 
-`TableResult.collect()` 与 `TableResult.print()` 的行为在不同的 checkpointing 模式下略有不同（流作业开启 checkpointing 的方法可参考 <a href="{{ site.baseurl }}/zh/ops/config.html#checkpointing">checkpointing 配置</a>）。
+`TableResult.collect()` 与 `TableResult.print()` 的行为在不同的 checkpointing 模式下略有不同（流作业开启 checkpointing 的方法可参考 <a href="{{ site.baseurl }}/zh/deployment/config.html#checkpointing">checkpointing 配置</a>）。
 * 对于批作业或没有配置任何 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 既不保证精确一次的数据交付、也不保证至少一次的数据交付。查询结果在产生后可被客户端即刻访问，但作业失败并重启时将会报错。
 * 对于配置了精准一次 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 保证端到端精确一次的数据交付。一条结果数据只有在其对应的 checkpointing 完成后才能在客户端被访问。
 * 对于配置了至少一次 checkpointing 的流作业，`TableResult.collect()` 与 `TableResult.print()` 保证端到端至少一次的数据交付。查询结果在产生后可被客户端即刻访问，但同一条结果可能被多次传递给客户端。
@@ -316,9 +316,15 @@ tableReference:
   [ [ AS ] alias [ '(' columnAlias [, columnAlias ]* ')' ] ]
 
 tablePrimary:
-  [ TABLE ] [ [ catalogName . ] schemaName . ] tableName [ dynamicTableOptions ]
+  [ TABLE ] tablePath [ dynamicTableOptions ] [systemTimePeriod] [[AS] correlationName]
   | LATERAL TABLE '(' functionName '(' expression [, expression ]* ')' ')'
   | UNNEST '(' expression ')'
+
+tablePath:
+  [ [ catalogName . ] schemaName . ] tableName  
+
+systemTimePeriod:
+  FOR SYSTEM_TIME AS OF dateTimeExpression
 
 dynamicTableOptions:
   /*+ OPTIONS(key=val [, key=val]*) */
@@ -757,6 +763,7 @@ FROM
   JOIN LatestRates FOR SYSTEM_TIME AS OF o.proctime AS r
   ON r.currency = o.currency
 {% endhighlight %}
+        <p>Join 的右表可以使用可选表达式 <code>[[<strong>AS</strong>] correlationName]</code> 取别名，注意 <code><strong>AS</strong></code> 关键词也是可选的。</p>
         <p>请阅读 <a href="{{ site.baseurl }}/zh/dev/table/streaming/temporal_tables.html">Temporal Tables</a> 概念描述以了解详细信息。</p>
         <p>仅 Blink planner 支持。</p>
       </td>
@@ -1089,7 +1096,7 @@ WHERE rownum = 1
 
 - `ROW_NUMBER()`: 从第一行开始，依次为每一行分配一个唯一且连续的号码。
 - `PARTITION BY col1[, col2...]`: 指定分区的列，例如去重的键。
-- `ORDER BY time_attr [asc|desc]`: 指定排序的列。所制定的列必须为 [时间属性]({{ site.baseurl }}/zh/dev/table/streaming/time_attributes.html)。目前仅支持 [proctime attribute]({{ site.baseurl }}/zh/dev/table/streaming/time_attributes.html#processing-time)，在未来版本中将会支持 [Rowtime atttribute]({{ site.baseurl }}/zh/dev/table/streaming/time_attributes.html#event-time) 。升序（ ASC ）排列指只保留第一行，而降序排列（ DESC ）则指保留最后一行。
+- `ORDER BY time_attr [asc|desc]`: 指定排序的列。所指定的列必须为 [时间属性]({% link dev/table/streaming/time_attributes.zh.md %}), 目前 Flink 支持 [处理时间属性]({% link dev/table/streaming/time_attributes.zh.md %}#处理时间) 和 [事件时间属性]({% link dev/table/streaming/time_attributes.zh.md %}#事件时间) 。升序（ ASC ）排列指只保留第一行，而降序排列（ DESC ）则指保留最后一行。
 - `WHERE rownum = 1`: Flink 需要 `rownum = 1` 以确定该查询是否为去重查询。
 
 以下的例子描述了如何指定 SQL 查询以在一个流计算表中进行去重操作。
@@ -1141,6 +1148,9 @@ val result1 = tableEnv.sqlQuery(
 </div>
 
 {% top %}
+
+去重能够保留输入流的时间属性，当下游操作是 window 聚合 或 join 关联操作时非常有用。
+基于处理时间的去重和基于事件时间的去重都支持 mini-batch 模式，这对性能更加友好, 查看 [mini-batch 配置]({% link dev/table/config.zh.md %}#table-exec-mini-batch-enabled) 了解如何开启 mini-batch 模式。
 
 ### 分组窗口
 

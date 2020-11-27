@@ -3748,7 +3748,7 @@ CONVERT_TZ(string1, string2, string3)
       </td>
       <td>
         <p>Converts a datetime <i>string1</i> (with default ISO timestamp format 'yyyy-MM-dd HH:mm:ss') from time zone <i>string2</i> to time zone <i>string3</i>. The format of time zone should be either an abbreviation such as "PST", a full name such as "America/Los_Angeles", or a custom ID such as "GMT-8:00".</p>
-        <p>E.g., <code>CONVERT('1970-01-01 00:00:00', 'UTC', 'America/Los_Angeles')</code> returns '1969-12-31 16:00:00'.</p>
+        <p>E.g., <code>CONVERT_TZ('1970-01-01 00:00:00', 'UTC', 'America/Los_Angeles')</code> returns '1969-12-31 16:00:00'.</p>
         <p>Only supported in blink planner.</p>
       </td>
     </tr>
@@ -4884,12 +4884,19 @@ MAP.at(ANY)
     <tr>
       <td>
 {% highlight text %}
-ROW(value1, [, value2]*)
-(value1, [, value2]*)
+-- implicit constructor with parenthesis
+(value1 [, value2]*)
+
+-- explicit ROW constructor
+ROW(value1 [, value2]*)
 {% endhighlight %}
       </td>
       <td>
         <p>Returns a row created from a list of values (<i>value1, value2,</i>...).</p>
+        <p>Note: The implicit row constructor supports arbitrary expressions as fields but requires
+        at least two fields. The explicit row constructor can deal with an arbitrary number of fields
+        but does not support all kinds of field expressions well currently.
+        See also <a href="https://issues.apache.org/jira/browse/FLINK-18027">FLINK-18027</a>.</p>
       </td>
     </tr>
 
@@ -5761,7 +5768,7 @@ LEAD(expression [, offset] [, default] )
 {% endhighlight %}
       </td>
       <td>
-        <p>Returns the value of <i>expression</i> at the <i>offset</i>th row after the current row in the window. The default value of <i>offset</i> is 1 and the default value of <i>default</i> is NULL.</p>
+        <p>Returns the value of <i>expression</i> at the <i>offset</i>th row before the current row in the window. The default value of <i>offset</i> is 1 and the default value of <i>default</i> is NULL.</p>
         <p>Only supported in blink planner.</p>
       </td>
     </tr>
